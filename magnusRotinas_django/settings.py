@@ -115,9 +115,12 @@ USE_TZ = False
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = 'static/'
+# PARA ISSO:
+STATIC_URL = '/static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'  # ✅ Adicione esta linha
 STATICFILES_DIRS = [BASE_DIR / 'static']
-STATICSTORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'horas:timer'
 LOGOUT_REDIRECT_URL = 'login'

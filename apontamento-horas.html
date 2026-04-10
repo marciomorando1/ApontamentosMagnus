@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Apontamento de Horas</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f0f0f;
+    --surface: #1a1a1a;
+    --surface2: #242424;
+    --border: #2e2e2e;
+    --border2: #3a3a3a;
+    --text: #f0f0f0;
+    --muted: #888;
+    --accent: #c8f53e;
+    --accent-dark: #a8d030;
+    --danger: #ff5f57;
+    --info: #4a9eff;
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'IBM Plex Sans', sans-serif;
+  }
+
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  /* Layout */
+  .shell { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
+
+  /* Sidebar */
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    padding: 0;
+  }
+  .logo {
+    padding: 20px 20px 16px;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .logo span { display: block; color: var(--muted); font-size: 10px; margin-top: 2px; letter-spacing: 0.06em; }
+
+  nav { padding: 12px 0; flex: 1; }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 20px;
+    font-size: 13px;
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.15s;
+    border-left: 2px solid transparent;
+  }
+  .nav-item:hover { color: var(--text); background: var(--surface2); }
+  .nav-item.active { color: var(--accent); border-left-color: var(--accent); background: rgba(200,245,62,0.05); }
+  .nav-icon { font-size: 15px; width: 18px; text-align: center; }
+
+  .sidebar-footer {
+    padding: 16px 20px;
+    border-top: 1px solid var(--border);
+  }
+  .hours-today {
+    font-family: var(--mono);
+    font-size: 22px;
+    color: var(--accent);
+    font-weight: 500;
+  }
+  .hours-label { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  /* Main */
+  .main { overflow-y: auto; }
+  .page { display: none; padding: 32px 36px; }
+  .page.active { display: block; }
+
+  .page-title {
+    font-size: 22px; font-weight: 600;
+    margin-bottom: 28px;
+    color: var(--text);
+  }
+
+  /* Timer card */
+  .timer-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px;
+    margin-bottom: 24px;
+  }
+  .timer-display {
+    font-family: var(--mono);
+    font-size: 52px;
+    font-weight: 500;
+    color: var(--accent);
+    letter-spacing: -2px;
+    margin-bottom: 24px;
+    line-height: 1;
+  }
+  .timer-display.idle { color: var(--muted); }
+  .timer-display.running { color: var(--accent); }
+
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+  .form-row.single { grid-template-columns: 1fr; }
+  .form-row.triple { grid-template-columns: 1fr 1fr 1fr; }
+
+  .field label {
+    display: block; font-size: 11px; font-weight: 500;
+    color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.08em; margin-bottom: 6px;
+  }
+  .field input, .field select, .field textarea {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 13px;
+    padding: 9px 12px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus {
+    border-color: var(--accent);
+  }
+  .field textarea { resize: vertical; min-height: 70px; }
+  .field select option { background: var(--surface2); }
+
+  .btn-row { display: flex; gap: 10px; margin-top: 20px; align-items: center; }
+  .btn {
+    padding: 10px 22px; border-radius: 6px; border: none;
+    font-family: var(--sans); font-size: 13px; font-weight: 500;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .btn-primary { background: var(--accent); color: #0f0f0f; }
+  .btn-primary:hover { background: var(--accent-dark); }
+  .btn-danger { background: var(--danger); color: white; }
+  .btn-danger:hover { background: #e54e46; }
+  .btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+  .btn-ghost:hover { color: var(--text); border-color: var(--border2); background: var(--surface2); }
+  .btn-sm { padding: 6px 14px; font-size: 12px; }
+
+  .running-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: rgba(200,245,62,0.1); color: var(--accent);
+    border: 1px solid rgba(200,245,62,0.3);
+    border-radius: 20px; padding: 4px 12px; font-size: 11px; font-weight: 500;
+  }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: pulse 1.2s ease infinite; }
+  @keyframes pulse { 0%,100%{ opacity:1; } 50%{ opacity:0.3; } }
+
+  /* Records table */
+  .section-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .section-label { font-size: 12px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+
+  .table-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; }
+  thead { background: var(--surface2); }
+  th {
+    padding: 10px 14px; text-align: left;
+    font-size: 11px; font-weight: 500; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.08em;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  td {
+    padding: 11px 14px; font-size: 13px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+  td.mono { font-family: var(--mono); font-size: 12px; }
+  td.desc { max-width: 260px; color: var(--muted); font-size: 12px; }
+
+  .badge-code {
+    display: inline-block;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 4px; padding: 2px 8px;
+    font-family: var(--mono); font-size: 11px; color: var(--info);
+  }
+
+  .empty-state {
+    text-align: center; padding: 48px 24px;
+    color: var(--muted); font-size: 13px;
+  }
+  .empty-icon { font-size: 32px; margin-bottom: 10px; }
+
+  /* Orçamentos page */
+  .orc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+  .orc-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    display: flex; align-items: flex-start; justify-content: space-between;
+  }
+  .orc-code { font-family: var(--mono); font-size: 18px; color: var(--accent); font-weight: 500; }
+  .orc-name { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .orc-actions { display: flex; gap: 6px; }
+
+  /* Add orcamento form */
+  .add-orc-card {
+    background: var(--surface);
+    border: 1px dashed var(--border2);
+    border-radius: 10px;
+    padding: 20px;
+  }
+  .add-orc-card h3 { font-size: 13px; font-weight: 500; margin-bottom: 14px; color: var(--muted); }
+
+  /* Filtros */
+  .filter-row { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: flex-end; }
+  .filter-row .field { flex: 1; min-width: 120px; }
+
+  /* Resumo */
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-bottom: 24px; }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+  }
+  .stat-value { font-family: var(--mono); font-size: 24px; color: var(--accent); font-weight: 500; }
+  .stat-label { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  /* Toast */
+  .toast {
+    position: fixed; bottom: 24px; right: 24px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 8px; padding: 12px 18px;
+    font-size: 13px; color: var(--text);
+    transform: translateY(80px); opacity: 0;
+    transition: all 0.25s; z-index: 999;
+    pointer-events: none;
+  }
+  .toast.show { transform: translateY(0); opacity: 1; }
+
+  /* Delete btn */
+  .btn-del {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--muted); border-radius: 5px;
+    padding: 4px 10px; font-size: 11px; cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-del:hover { color: var(--danger); border-color: var(--danger); background: rgba(255,95,87,0.08); }
+
+  .date-group td:first-child {
+    font-family: var(--mono); font-size: 11px; color: var(--muted);
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 10px; }
+
+  .time-manual { display: flex; gap: 6px; align-items: center; }
+  .time-sep { color: var(--muted); font-size: 14px; }
+
+  @media (max-width: 700px) {
+    .shell { grid-template-columns: 1fr; }
+    .sidebar { display: flex; flex-direction: row; border-right: none; border-bottom: 1px solid var(--border); }
+    nav { display: flex; flex-direction: row; padding: 0; }
+    .nav-item { border-left: none; border-bottom: 2px solid transparent; flex-direction: column; gap: 3px; font-size: 11px; padding: 10px 14px; }
+    .nav-item.active { border-left: none; border-bottom-color: var(--accent); }
+    .logo { border-bottom: none; border-right: 1px solid var(--border); }
+    .sidebar-footer { display: none; }
+    .page { padding: 20px 18px; }
+    .form-row, .form-row.triple { grid-template-columns: 1fr; }
+    .timer-display { font-size: 38px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <aside class="sidebar">
+    <div class="logo">
+      HORAS<br>
+      <span>APONTAMENTO</span>
+    </div>
+    <nav>
+      <div class="nav-item active" onclick="showPage('timer')" id="nav-timer">
+        <span class="nav-icon">⏱</span> Timer
+      </div>
+      <div class="nav-item" onclick="showPage('registros')" id="nav-registros">
+        <span class="nav-icon">📋</span> Registros
+      </div>
+      <div class="nav-item" onclick="showPage('resumo')" id="nav-resumo">
+        <span class="nav-icon">📊</span> Resumo
+      </div>
+      <div class="nav-item" onclick="showPage('orcamentos')" id="nav-orcamentos">
+        <span class="nav-icon">🗂</span> Orçamentos
+      </div>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="hours-today" id="sidebar-today">0h00</div>
+      <div class="hours-label">hoje</div>
+    </div>
+  </aside>
+
+  <main class="main">
+
+    <!-- TIMER PAGE -->
+    <div class="page active" id="page-timer">
+      <div class="page-title">Novo apontamento</div>
+
+      <div class="timer-card">
+        <div class="timer-display idle" id="timer-display">00:00:00</div>
+
+        <div class="form-row">
+          <div class="field">
+            <label>Data</label>
+            <input type="date" id="f-data">
+          </div>
+          <div class="field">
+            <label>Orçamento</label>
+            <select id="f-orcamento">
+              <option value="">— selecione —</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row triple">
+          <div class="field">
+            <label>Hora início</label>
+            <input type="time" id="f-inicio">
+          </div>
+          <div class="field">
+            <label>Hora fim</label>
+            <input type="time" id="f-fim">
+          </div>
+          <div class="field">
+            <label>Total</label>
+            <input type="text" id="f-total" placeholder="—" readonly style="color:var(--accent); font-family:var(--mono);">
+          </div>
+        </div>
+
+        <div class="form-row single">
+          <div class="field">
+            <label>Descrição da atividade</label>
+            <textarea id="f-desc" placeholder="Ex: Dado continuidade no desenvolvimento da integração..."></textarea>
+          </div>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-primary" id="btn-timer" onclick="toggleTimer()">▶ Iniciar timer</button>
+          <button class="btn btn-ghost" onclick="saveManual()">+ Salvar manual</button>
+          <div id="running-indicator" style="display:none;">
+            <div class="running-badge"><div class="dot"></div> Registrando...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- REGISTROS PAGE -->
+    <div class="page" id="page-registros">
+      <div class="page-title">Registros</div>
+
+      <div class="filter-row">
+        <div class="field">
+          <label>De</label>
+          <input type="date" id="fil-de">
+        </div>
+        <div class="field">
+          <label>Até</label>
+          <input type="date" id="fil-ate">
+        </div>
+        <div class="field">
+          <label>Orçamento</label>
+          <select id="fil-orc">
+            <option value="">Todos</option>
+          </select>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="renderRegistros()">Filtrar</button>
+        <button class="btn btn-primary btn-sm" onclick="exportCSV()">⬇ Exportar CSV</button>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Data</th>
+              <th>Início</th>
+              <th>Fim</th>
+              <th>Total</th>
+              <th>Orçamento</th>
+              <th>Descrição</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="registros-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- RESUMO PAGE -->
+    <div class="page" id="page-resumo">
+      <div class="page-title">Resumo</div>
+
+      <div class="filter-row">
+        <div class="field">
+          <label>De</label>
+          <input type="date" id="res-de">
+        </div>
+        <div class="field">
+          <label>Até</label>
+          <input type="date" id="res-ate">
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="renderResumo()">Atualizar</button>
+      </div>
+
+      <div class="stats-grid" id="stats-grid"></div>
+
+      <div class="section-header">
+        <div class="section-label">Por orçamento</div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Orçamento</th>
+              <th>Nome</th>
+              <th>Registros</th>
+              <th>Total horas</th>
+            </tr>
+          </thead>
+          <tbody id="resumo-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ORÇAMENTOS PAGE -->
+    <div class="page" id="page-orcamentos">
+      <div class="page-title">Orçamentos</div>
+
+      <div class="add-orc-card" style="margin-bottom:24px;">
+        <h3>Adicionar orçamento</h3>
+        <div class="form-row">
+          <div class="field">
+            <label>Código</label>
+            <input type="text" id="orc-code" placeholder="Ex: 17275">
+          </div>
+          <div class="field">
+            <label>Nome / Descrição</label>
+            <input type="text" id="orc-name" placeholder="Ex: Integração Senior Aliança/Nortel">
+          </div>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="addOrcamento()">Adicionar</button>
+      </div>
+
+      <div class="orc-grid" id="orc-grid"></div>
+    </div>
+
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ---- STATE ----
+let state = {
+  registros: [],
+  orcamentos: [],
+  timerRunning: false,
+  timerStart: null,
+  timerInterval: null,
+};
+
+function load() {
+  const r = localStorage.getItem('apt_registros');
+  const o = localStorage.getItem('apt_orcamentos');
+  if (r) state.registros = JSON.parse(r);
+  if (o) state.orcamentos = JSON.parse(o);
+}
+
+function save() {
+  localStorage.setItem('apt_registros', JSON.stringify(state.registros));
+  localStorage.setItem('apt_orcamentos', JSON.stringify(state.orcamentos));
+}
+
+// ---- UTILS ----
+function today() {
+  return new Date().toISOString().slice(0,10);
+}
+
+function nowTime() {
+  const n = new Date();
+  return String(n.getHours()).padStart(2,'0') + ':' + String(n.getMinutes()).padStart(2,'0');
+}
+
+function diffHours(a, b) {
+  if (!a || !b) return '';
+  const [ah,am] = a.split(':').map(Number);
+  const [bh,bm] = b.split(':').map(Number);
+  const diff = (bh*60+bm) - (ah*60+am);
+  if (diff <= 0) return '';
+  const h = Math.floor(diff/60);
+  const m = diff%60;
+  return h + 'h' + String(m).padStart(2,'0');
+}
+
+function decimalHours(a, b) {
+  if (!a || !b) return 0;
+  const [ah,am] = a.split(':').map(Number);
+  const [bh,bm] = b.split(':').map(Number);
+  const diff = (bh*60+bm) - (ah*60+am);
+  return diff > 0 ? diff/60 : 0;
+}
+
+function totalHoursToday() {
+  const t = today();
+  const sum = state.registros
+    .filter(r => r.data === t)
+    .reduce((acc, r) => acc + decimalHours(r.inicio, r.fim), 0);
+  const h = Math.floor(sum);
+  const m = Math.round((sum - h) * 60);
+  return h + 'h' + String(m).padStart(2,'0');
+}
+
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2500);
+}
+
+function uid() {
+  return Date.now() + Math.random().toString(36).slice(2,7);
+}
+
+// ---- NAVIGATION ----
+function showPage(page) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-' + page).classList.add('active');
+  document.getElementById('nav-' + page).classList.add('active');
+  if (page === 'registros') renderRegistros();
+  if (page === 'resumo') renderResumo();
+  if (page === 'orcamentos') renderOrcamentos();
+  if (page === 'timer') populateOrcSelect('f-orcamento');
+}
+
+// ---- TIMER ----
+function toggleTimer() {
+  if (!state.timerRunning) {
+    startTimer();
+  } else {
+    stopTimer();
+  }
+}
+
+function startTimer() {
+  state.timerRunning = true;
+  state.timerStart = new Date();
+  const inicio = nowTime();
+  document.getElementById('f-inicio').value = inicio;
+  document.getElementById('f-data').value = today();
+  document.getElementById('btn-timer').textContent = '⏹ Parar e salvar';
+  document.getElementById('btn-timer').className = 'btn btn-danger';
+  document.getElementById('running-indicator').style.display = 'block';
+  const display = document.getElementById('timer-display');
+  display.classList.remove('idle');
+  display.classList.add('running');
+  state.timerInterval = setInterval(tickTimer, 1000);
+}
+
+function tickTimer() {
+  const elapsed = Math.floor((Date.now() - state.timerStart) / 1000);
+  const h = Math.floor(elapsed/3600);
+  const m = Math.floor((elapsed%3600)/60);
+  const s = elapsed%60;
+  document.getElementById('timer-display').textContent =
+    String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+}
+
+function stopTimer() {
+  clearInterval(state.timerInterval);
+  state.timerRunning = false;
+  const fim = nowTime();
+  document.getElementById('f-fim').value = fim;
+  updateTotal();
+  document.getElementById('btn-timer').textContent = '▶ Iniciar timer';
+  document.getElementById('btn-timer').className = 'btn btn-primary';
+  document.getElementById('running-indicator').style.display = 'none';
+  const display = document.getElementById('timer-display');
+  display.classList.remove('running');
+  display.classList.add('idle');
+  saveCurrentRecord();
+}
+
+function updateTotal() {
+  const ini = document.getElementById('f-inicio').value;
+  const fim = document.getElementById('f-fim').value;
+  document.getElementById('f-total').value = diffHours(ini, fim);
+}
+
+// Listen to manual time changes
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('f-inicio').addEventListener('change', updateTotal);
+  document.getElementById('f-fim').addEventListener('change', updateTotal);
+  document.getElementById('f-data').value = today();
+  populateOrcSelect('f-orcamento');
+  updateSidebarToday();
+
+  // default filter dates
+  const m = new Date(); m.setDate(1);
+  const de = m.toISOString().slice(0,10);
+  const ate = today();
+  ['fil-de','res-de'].forEach(id => { const el = document.getElementById(id); if(el) el.value = de; });
+  ['fil-ate','res-ate'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ate; });
+});
+
+function saveCurrentRecord() {
+  const data = document.getElementById('f-data').value;
+  const inicio = document.getElementById('f-inicio').value;
+  const fim = document.getElementById('f-fim').value;
+  const orcId = document.getElementById('f-orcamento').value;
+  const desc = document.getElementById('f-desc').value.trim();
+
+  if (!data || !inicio || !fim) { toast('Preencha data, início e fim'); return; }
+  const orc = state.orcamentos.find(o => o.id === orcId);
+
+  state.registros.push({
+    id: uid(), data, inicio, fim,
+    orcId, orcCode: orc ? orc.code : '', orcName: orc ? orc.name : '',
+    desc
+  });
+  save();
+  resetForm();
+  updateSidebarToday();
+  toast('Registro salvo ✓');
+}
+
+function saveManual() {
+  saveCurrentRecord();
+}
+
+function resetForm() {
+  document.getElementById('f-inicio').value = '';
+  document.getElementById('f-fim').value = '';
+  document.getElementById('f-total').value = '';
+  document.getElementById('f-desc').value = '';
+  document.getElementById('f-orcamento').value = '';
+  document.getElementById('timer-display').textContent = '00:00:00';
+  document.getElementById('timer-display').className = 'timer-display idle';
+  document.getElementById('f-data').value = today();
+}
+
+function updateSidebarToday() {
+  document.getElementById('sidebar-today').textContent = totalHoursToday();
+}
+
+// ---- ORÇAMENTOS ----
+function populateOrcSelect(id) {
+  const sel = document.getElementById(id);
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">— selecione —</option>';
+  state.orcamentos.forEach(o => {
+    const opt = document.createElement('option');
+    opt.value = o.id;
+    opt.textContent = o.code + (o.name ? ' — ' + o.name : '');
+    sel.appendChild(opt);
+  });
+  sel.value = cur;
+}
+
+function addOrcamento() {
+  const code = document.getElementById('orc-code').value.trim();
+  const name = document.getElementById('orc-name').value.trim();
+  if (!code) { toast('Informe o código'); return; }
+  if (state.orcamentos.find(o => o.code === code)) { toast('Código já cadastrado'); return; }
+  state.orcamentos.push({ id: uid(), code, name });
+  save();
+  document.getElementById('orc-code').value = '';
+  document.getElementById('orc-name').value = '';
+  renderOrcamentos();
+  populateOrcSelect('f-orcamento');
+  toast('Orçamento adicionado ✓');
+}
+
+function delOrcamento(id) {
+  state.orcamentos = state.orcamentos.filter(o => o.id !== id);
+  save();
+  renderOrcamentos();
+  populateOrcSelect('f-orcamento');
+  toast('Removido');
+}
+
+function renderOrcamentos() {
+  const grid = document.getElementById('orc-grid');
+  if (!state.orcamentos.length) {
+    grid.innerHTML = '<div style="color:var(--muted);font-size:13px;">Nenhum orçamento cadastrado.</div>';
+    return;
+  }
+  grid.innerHTML = state.orcamentos.map(o => `
+    <div class="orc-card">
+      <div>
+        <div class="orc-code">${o.code}</div>
+        <div class="orc-name">${o.name || '<em style="opacity:.4">sem nome</em>'}</div>
+      </div>
+      <div class="orc-actions">
+        <button class="btn-del" onclick="delOrcamento('${o.id}')">✕</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ---- REGISTROS ----
+function filteredRegistros() {
+  const de = document.getElementById('fil-de').value;
+  const ate = document.getElementById('fil-ate').value;
+  const orc = document.getElementById('fil-orc').value;
+  return state.registros.filter(r => {
+    if (de && r.data < de) return false;
+    if (ate && r.data > ate) return false;
+    if (orc && r.orcId !== orc) return false;
+    return true;
+  }).sort((a,b) => (a.data+a.inicio) < (b.data+b.inicio) ? 1 : -1);
+}
+
+function renderRegistros() {
+  populateOrcSelect('fil-orc');
+  document.getElementById('fil-orc').innerHTML = '<option value="">Todos</option>' + 
+    state.orcamentos.map(o => `<option value="${o.id}">${o.code}${o.name?' — '+o.name:''}</option>`).join('');
+
+  const tbody = document.getElementById('registros-tbody');
+  const rows = filteredRegistros();
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">📭</div>Nenhum registro encontrado.</div></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map(r => `
+    <tr>
+      <td class="mono">${r.data.split('-').reverse().join('/')}</td>
+      <td class="mono">${r.inicio}</td>
+      <td class="mono">${r.fim}</td>
+      <td class="mono" style="color:var(--accent)">${diffHours(r.inicio,r.fim)}</td>
+      <td><span class="badge-code">${r.orcCode || '—'}</span></td>
+      <td class="desc">${r.desc || '<em style="opacity:.4">—</em>'}</td>
+      <td><button class="btn-del" onclick="delRegistro('${r.id}')">✕</button></td>
+    </tr>
+  `).join('');
+}
+
+function delRegistro(id) {
+  if (!confirm('Remover este registro?')) return;
+  state.registros = state.registros.filter(r => r.id !== id);
+  save();
+  renderRegistros();
+  updateSidebarToday();
+  toast('Removido');
+}
+
+// ---- RESUMO ----
+function renderResumo() {
+  const de = document.getElementById('res-de').value;
+  const ate = document.getElementById('res-ate').value;
+  const rows = state.registros.filter(r => {
+    if (de && r.data < de) return false;
+    if (ate && r.data > ate) return false;
+    return true;
+  });
+
+  const totalH = rows.reduce((a,r) => a + decimalHours(r.inicio,r.fim), 0);
+  const dias = new Set(rows.map(r=>r.data)).size;
+  const media = dias > 0 ? totalH/dias : 0;
+
+  function fmtH(h) {
+    const hh = Math.floor(h); const mm = Math.round((h-hh)*60);
+    return hh + 'h' + String(mm).padStart(2,'0');
+  }
+
+  document.getElementById('stats-grid').innerHTML = `
+    <div class="stat-card"><div class="stat-value">${fmtH(totalH)}</div><div class="stat-label">Total no período</div></div>
+    <div class="stat-card"><div class="stat-value">${rows.length}</div><div class="stat-label">Registros</div></div>
+    <div class="stat-card"><div class="stat-value">${dias}</div><div class="stat-label">Dias trabalhados</div></div>
+    <div class="stat-card"><div class="stat-value">${fmtH(media)}</div><div class="stat-label">Média por dia</div></div>
+  `;
+
+  // por orçamento
+  const byOrc = {};
+  rows.forEach(r => {
+    const k = r.orcId || '__none__';
+    if (!byOrc[k]) byOrc[k] = { code: r.orcCode||'—', name: r.orcName||'', count: 0, hours: 0 };
+    byOrc[k].count++;
+    byOrc[k].hours += decimalHours(r.inicio, r.fim);
+  });
+
+  const tbody = document.getElementById('resumo-tbody');
+  const entries = Object.values(byOrc).sort((a,b) => b.hours - a.hours);
+  if (!entries.length) {
+    tbody.innerHTML = `<tr><td colspan="4"><div class="empty-state"><div class="empty-icon">📊</div>Nenhum dado no período.</div></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = entries.map(e => `
+    <tr>
+      <td><span class="badge-code">${e.code}</span></td>
+      <td style="color:var(--muted);font-size:12px;">${e.name}</td>
+      <td class="mono">${e.count}</td>
+      <td class="mono" style="color:var(--accent)">${fmtH(e.hours)}</td>
+    </tr>
+  `).join('');
+}
+
+// ---- EXPORT CSV ----
+function exportCSV() {
+  const rows = filteredRegistros();
+  if (!rows.length) { toast('Nenhum registro para exportar'); return; }
+  const header = ['Data','Hora Inicio','Hora Fim','Total','Codigo Orcamento','Descricao'];
+  const lines = rows.map(r => [
+    r.data.split('-').reverse().join('/'),
+    r.inicio, r.fim,
+    diffHours(r.inicio, r.fim),
+    r.orcCode,
+    '"' + (r.desc||'').replace(/"/g,'""') + '"'
+  ].join(';'));
+  const csv = [header.join(';'), ...lines].join('\n');
+  const blob = new Blob(['\uFEFF'+csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'apontamento_' + today() + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('CSV exportado ✓');
+}
+
+// ---- INIT ----
+load();
+</script>
+</body>
+</html>

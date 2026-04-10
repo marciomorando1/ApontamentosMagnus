@@ -1,0 +1,73 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Apontamento de Horas{% endblock %}</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'css/style.css' %}">
+</head>
+<body class="{% if not user.is_authenticated %}auth-body{% endif %}">
+  {% if user.is_authenticated %}
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="logo">
+        HORAS<br>
+        <span>APONTAMENTO</span>
+      </div>
+      <nav>
+        <a class="nav-item {% if section == 'timer' %}active{% endif %}" href="{% url 'horas:timer' %}">
+          <span class="nav-icon">⏱</span> Timer
+        </a>
+        <a class="nav-item {% if section == 'registros' %}active{% endif %}" href="{% url 'horas:registros' %}">
+          <span class="nav-icon">📋</span> Registros
+        </a>
+        <a class="nav-item {% if section == 'resumo' %}active{% endif %}" href="{% url 'horas:resumo' %}">
+          <span class="nav-icon">📊</span> Resumo
+        </a>
+        <a class="nav-item {% if section == 'orcamentos' %}active{% endif %}" href="{% url 'horas:orcamentos' %}">
+          <span class="nav-icon">🗂</span> Orçamentos
+        </a>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="user-chip">{{ user.username }}</div>
+        <div class="hours-today">{{ sidebar_total_today }}</div>
+        <div class="hours-label">hoje</div>
+        <form method="post" action="{% url 'logout' %}" class="logout-form">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-ghost btn-sm logout-btn">Sair</button>
+        </form>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="page active">
+  {% else %}
+    <main class="auth-shell">
+  {% endif %}
+        {% block content %}{% endblock %}
+  {% if user.is_authenticated %}
+      </div>
+    </main>
+  </div>
+  {% else %}
+  </main>
+  {% endif %}
+
+  <div class="toast-stack">
+    {% for message in messages %}
+      <div class="toast show {% if message.tags %}toast-{{ message.tags }}{% endif %}">{{ message }}</div>
+    {% endfor %}
+  </div>
+
+  <script>
+    document.querySelectorAll('.toast.show').forEach((toast, index) => {
+      setTimeout(() => {
+        toast.classList.remove('show');
+      }, 2800 + (index * 200));
+    });
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

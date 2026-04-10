@@ -1,0 +1,231 @@
+﻿{% extends 'base.html' %}
+
+{% block title %}Apontamento de Horas{% endblock %}
+
+{% block content %}
+  <div class="page-title">Novo apontamento</div>
+
+  <form method="post" class="timer-card" id="timer-form">
+    {% csrf_token %}
+    <input type="hidden" name="submission_mode" id="submission-mode" value="manual">
+    <div class="timer-display idle" id="timer-display">00:00:00</div>
+
+    <div class="form-row">
+      <div class="field">
+        <label for="{{ form.data.id_for_label }}">Data</label>
+        {{ form.data }}
+        {% for error in form.data.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
+        <label for="{{ form.orcamento.id_for_label }}">Orçamento</label>
+        {{ form.orcamento }}
+        {% for error in form.orcamento.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+    </div>
+
+    <div class="form-row triple">
+      <div class="field">
+        <label for="{{ form.hora_inicio.id_for_label }}">Hora início</label>
+        {{ form.hora_inicio }}
+        {% for error in form.hora_inicio.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
+        <label for="{{ form.hora_fim.id_for_label }}">Hora fim</label>
+        {{ form.hora_fim }}
+        {% for error in form.hora_fim.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
+        <label for="f-total">Total</label>
+        <input type="text" id="f-total" placeholder="—" readonly class="mono-accent">
+      </div>
+    </div>
+
+    <div class="form-row single">
+      <div class="field">
+        <label for="{{ form.descricao.id_for_label }}">Descrição da atividade</label>
+        {{ form.descricao }}
+        {% for error in form.descricao.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+    </div>
+
+    <div id="manual-rows">
+      {% for row in extra_rows %}
+        <div class="manual-row">
+          <div class="manual-row-head">
+            <div class="manual-row-title">Registro adicional</div>
+            <button type="button" class="btn-del js-remove-row">✕</button>
+          </div>
+          <div class="form-row">
+            <div class="field">
+              <label>Hora início</label>
+              <input type="time" name="extra_hora_inicio" value="{{ row.hora_inicio }}">
+            </div>
+            <div class="field">
+              <label>Hora fim</label>
+              <input type="time" name="extra_hora_fim" value="{{ row.hora_fim }}">
+            </div>
+          </div>
+          <div class="form-row single">
+            <div class="field">
+              <label>Descrição da atividade</label>
+              <textarea name="extra_descricao">{{ row.descricao }}</textarea>
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-primary" type="button" id="btn-timer">▶ Iniciar timer</button>
+      <button class="btn btn-ghost btn-square" type="button" id="btn-add-row">+</button>
+      <button class="btn btn-ghost" type="submit" id="btn-save-manual">Salvar manual</button>
+      <div id="running-indicator" style="display:none;">
+        <div class="running-badge"><div class="dot"></div> Registrando...</div>
+      </div>
+    </div>
+  </form>
+
+  <template id="manual-row-template">
+    <div class="manual-row">
+      <div class="manual-row-head">
+        <div class="manual-row-title">Registro adicional</div>
+        <button type="button" class="btn-del js-remove-row">✕</button>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label>Hora início</label>
+          <input type="time" name="extra_hora_inicio">
+        </div>
+        <div class="field">
+          <label>Hora fim</label>
+          <input type="time" name="extra_hora_fim">
+        </div>
+      </div>
+      <div class="form-row single">
+        <div class="field">
+          <label>Descrição da atividade</label>
+          <textarea name="extra_descricao"></textarea>
+        </div>
+      </div>
+    </div>
+  </template>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const timerButton = document.getElementById('btn-timer');
+    const addRowButton = document.getElementById('btn-add-row');
+    const saveManualButton = document.getElementById('btn-save-manual');
+    const timerDisplay = document.getElementById('timer-display');
+    const runningIndicator = document.getElementById('running-indicator');
+    const startField = document.getElementById('{{ form.hora_inicio.id_for_label }}');
+    const endField = document.getElementById('{{ form.hora_fim.id_for_label }}');
+    const dateField = document.getElementById('{{ form.data.id_for_label }}');
+    const totalField = document.getElementById('f-total');
+    const timerForm = document.getElementById('timer-form');
+    const submissionModeField = document.getElementById('submission-mode');
+    const manualRows = document.getElementById('manual-rows');
+    const manualRowTemplate = document.getElementById('manual-row-template');
+
+    let timerStart = null;
+    let timerInterval = null;
+    let timerRunning = false;
+
+    function nowDateValue() {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
+    function nowTimeValue() {
+      const now = new Date();
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      return `${hours}:${minutes}`;
+    }
+
+    function diffHours(start, end) {
+      if (!start || !end) return '';
+      const [startHour, startMinute] = start.split(':').map(Number);
+      const [endHour, endMinute] = end.split(':').map(Number);
+      const diff = (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
+      if (diff <= 0) return '';
+      const hours = Math.floor(diff / 60);
+      const minutes = diff % 60;
+      return `${hours}h${String(minutes).padStart(2, '0')}`;
+    }
+
+    function updateTotal() {
+      totalField.value = diffHours(startField.value, endField.value);
+    }
+
+    function tickTimer() {
+      const elapsed = Math.floor((Date.now() - timerStart) / 1000);
+      const hours = String(Math.floor(elapsed / 3600)).padStart(2, '0');
+      const minutes = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
+      const seconds = String(elapsed % 60).padStart(2, '0');
+      timerDisplay.textContent = `${hours}:${minutes}:${seconds}`;
+    }
+
+    function startTimer() {
+      submissionModeField.value = 'timer';
+      timerRunning = true;
+      timerStart = Date.now();
+      startField.value = nowTimeValue();
+      if (!dateField.value) {
+        dateField.value = nowDateValue();
+      }
+      timerButton.textContent = '⏹ Parar e salvar';
+      timerButton.className = 'btn btn-danger';
+      runningIndicator.style.display = 'block';
+      timerDisplay.classList.remove('idle');
+      timerDisplay.classList.add('running');
+      timerInterval = window.setInterval(tickTimer, 1000);
+      updateTotal();
+    }
+
+    function stopTimer() {
+      window.clearInterval(timerInterval);
+      timerRunning = false;
+      endField.value = nowTimeValue();
+      timerButton.textContent = '▶ Iniciar timer';
+      timerButton.className = 'btn btn-primary';
+      runningIndicator.style.display = 'none';
+      timerDisplay.classList.remove('running');
+      timerDisplay.classList.add('idle');
+      updateTotal();
+      timerForm.requestSubmit();
+    }
+
+    function appendManualRow() {
+      manualRows.appendChild(manualRowTemplate.content.cloneNode(true));
+    }
+
+    timerButton.addEventListener('click', () => {
+      if (timerRunning) {
+        stopTimer();
+      } else {
+        startTimer();
+      }
+    });
+
+    addRowButton.addEventListener('click', appendManualRow);
+    saveManualButton.addEventListener('click', () => {
+      submissionModeField.value = 'manual';
+    });
+    manualRows.addEventListener('click', (event) => {
+      if (event.target.classList.contains('js-remove-row')) {
+        event.target.closest('.manual-row').remove();
+      }
+    });
+
+    startField.addEventListener('change', updateTotal);
+    endField.addEventListener('change', updateTotal);
+    if (!dateField.value) {
+      dateField.value = nowDateValue();
+    }
+    updateTotal();
+  </script>
+{% endblock %}

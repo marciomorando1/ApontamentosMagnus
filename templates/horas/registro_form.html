@@ -1,0 +1,80 @@
+{% extends 'base.html' %}
+
+{% block title %}Editar Registro | Apontamento de Horas{% endblock %}
+
+{% block content %}
+  <div class="page-title">Editar registro</div>
+
+  <form method="post" class="timer-card">
+    {% csrf_token %}
+    <div class="form-row">
+      <div class="field">
+        <label for="{{ form.data.id_for_label }}">Data</label>
+        {{ form.data }}
+        {% for error in form.data.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
+        <label for="{{ form.orcamento.id_for_label }}">Orçamento</label>
+        {{ form.orcamento }}
+        {% for error in form.orcamento.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+    </div>
+
+    <div class="form-row triple">
+      <div class="field">
+        <label for="{{ form.hora_inicio.id_for_label }}">Hora início</label>
+        {{ form.hora_inicio }}
+        {% for error in form.hora_inicio.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
+        <label for="{{ form.hora_fim.id_for_label }}">Hora fim</label>
+        {{ form.hora_fim }}
+        {% for error in form.hora_fim.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
+        <label for="f-total">Total</label>
+        <input type="text" id="f-total" value="{{ registro.total_formatado }}" readonly class="mono-accent">
+      </div>
+    </div>
+
+    <div class="form-row single">
+      <div class="field">
+        <label for="{{ form.descricao.id_for_label }}">Descrição da atividade</label>
+        {{ form.descricao }}
+        {% for error in form.descricao.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-primary" type="submit">Salvar alterações</button>
+      <a class="btn btn-ghost" href="{% url 'horas:registros' %}{% if query_string %}?{{ query_string }}{% endif %}">Cancelar</a>
+    </div>
+  </form>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const startField = document.getElementById('{{ form.hora_inicio.id_for_label }}');
+    const endField = document.getElementById('{{ form.hora_fim.id_for_label }}');
+    const totalField = document.getElementById('f-total');
+
+    function diffHours(start, end) {
+      if (!start || !end) return '';
+      const [startHour, startMinute] = start.split(':').map(Number);
+      const [endHour, endMinute] = end.split(':').map(Number);
+      const diff = (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
+      if (diff <= 0) return '';
+      const hours = Math.floor(diff / 60);
+      const minutes = diff % 60;
+      return `${hours}h${String(minutes).padStart(2, '0')}`;
+    }
+
+    function updateTotal() {
+      totalField.value = diffHours(startField.value, endField.value);
+    }
+
+    startField.addEventListener('change', updateTotal);
+    endField.addEventListener('change', updateTotal);
+    updateTotal();
+  </script>
+{% endblock %}

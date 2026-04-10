@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+
+{% block title %}Resumo | Apontamento de Horas{% endblock %}
+
+{% block content %}
+  <div class="page-title">Resumo</div>
+
+  <form method="get" class="filter-row">
+    <div class="field">
+      <label for="res-de">De</label>
+      <input type="date" id="res-de" name="de" value="{{ filtros.de }}">
+    </div>
+    <div class="field">
+      <label for="res-ate">Até</label>
+      <input type="date" id="res-ate" name="ate" value="{{ filtros.ate }}">
+    </div>
+    <button class="btn btn-ghost btn-sm" type="submit">Atualizar</button>
+  </form>
+
+  <div class="stats-grid">
+    {% for label, value in stats %}
+      <div class="stat-card">
+        <div class="stat-value">{{ value }}</div>
+        <div class="stat-label">{{ label }}</div>
+      </div>
+    {% endfor %}
+  </div>
+
+  <div class="section-header">
+    <div class="section-label">Por orçamento</div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Orçamento</th>
+          <th>Nome</th>
+          <th>Registros</th>
+          <th>Total horas</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in detalhes_orcamento %}
+          <tr>
+            <td><span class="badge-code">{{ item.codigo }}</span></td>
+            <td class="desc">{{ item.nome|default:'—' }}</td>
+            <td class="mono">{{ item.count }}</td>
+            <td class="mono accent-text">{{ item.total_formatado }}</td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="4">
+              <div class="empty-state">
+                <div class="empty-icon">📊</div>
+                Nenhum dado no período.
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

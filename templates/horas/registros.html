@@ -1,0 +1,80 @@
+{% extends 'base.html' %}
+
+{% block title %}Registros | Apontamento de Horas{% endblock %}
+
+{% block content %}
+  <div class="page-title">Registros</div>
+
+  <form method="get" class="filter-row">
+    <div class="field">
+      <label for="fil-de">De</label>
+      <input type="date" id="fil-de" name="de" value="{{ filtros.de }}">
+    </div>
+    <div class="field">
+      <label for="fil-ate">Até</label>
+      <input type="date" id="fil-ate" name="ate" value="{{ filtros.ate }}">
+    </div>
+    <div class="field">
+      <label for="fil-orc">Orçamento</label>
+      <select id="fil-orc" name="orcamento">
+        <option value="">Todos</option>
+        {% for orcamento in orcamentos_ativos %}
+          <option value="{{ orcamento.pk }}" {% if filtros.orcamento == orcamento.pk|stringformat:'s' %}selected{% endif %}>
+            {{ orcamento.codigo }}{% if orcamento.nome %} — {{ orcamento.nome }}{% endif %}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <button class="btn btn-ghost btn-sm" type="submit">Filtrar</button>
+    <a class="btn btn-primary btn-sm" href="{% url 'horas:exportar_csv' %}?de={{ filtros.de }}&ate={{ filtros.ate }}&orcamento={{ filtros.orcamento }}">⬇ Exportar CSV</a>
+  </form>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Data</th>
+          <th>Início</th>
+          <th>Fim</th>
+          <th>Total</th>
+          <th>Orçamento</th>
+          <th>Descrição</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for registro in registros %}
+          <tr>
+            <td class="mono">{{ registro.data|date:'d/m/Y' }}</td>
+            <td class="mono">{{ registro.hora_inicio|time:'H:i' }}</td>
+            <td class="mono">{{ registro.hora_fim|time:'H:i' }}</td>
+            <td class="mono accent-text">{{ registro.total_formatado }}</td>
+            <td><span class="badge-code">{{ registro.orcamento.codigo }}</span></td>
+            <td class="desc">{{ registro.descricao|default:'—' }}</td>
+            <td class="actions-cell">
+              <form method="get" action="{% url 'horas:registro_editar' registro.pk %}">
+                {% if filtros.de %}<input type="hidden" name="de" value="{{ filtros.de }}">{% endif %}
+                {% if filtros.ate %}<input type="hidden" name="ate" value="{{ filtros.ate }}">{% endif %}
+                {% if filtros.orcamento %}<input type="hidden" name="orcamento" value="{{ filtros.orcamento }}">{% endif %}
+                <button class="btn-inline" type="submit">Editar</button>
+              </form>
+              <form method="post" action="{% url 'horas:registro_remover' registro.pk %}?de={{ filtros.de }}&ate={{ filtros.ate }}&orcamento={{ filtros.orcamento }}">
+                {% csrf_token %}
+                <button class="btn-del" type="submit">✕</button>
+              </form>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="7">
+              <div class="empty-state">
+                <div class="empty-icon">📭</div>
+                Nenhum registro encontrado.
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

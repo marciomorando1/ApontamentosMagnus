@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+
+{% block title %}Login | Apontamento de Horas{% endblock %}
+
+{% block content %}
+  <section class="login-panel">
+    <div class="login-brand">
+      <div class="logo-mark">HORAS</div>
+      <h1>Controle de Horas</h1>
+      <p>DEV - Senior Curitiba</p>
+    </div>
+
+    <form method="post" class="login-card">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ next }}">
+
+      <div class="field">
+        <label for="{{ form.username.id_for_label }}">Usuário</label>
+        {{ form.username }}
+      </div>
+
+      <div class="field">
+        <label for="{{ form.password.id_for_label }}">Senha</label>
+        {{ form.password }}
+      </div>
+
+      {% if form.non_field_errors %}
+        <div class="login-error">
+          {% for error in form.non_field_errors %}
+            <div>{{ error }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      <button class="btn btn-primary login-submit" type="submit">Entrar</button>
+    </form>
+  </section>
+{% endblock %}

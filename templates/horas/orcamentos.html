@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+
+{% block title %}Orçamentos | Apontamento de Horas{% endblock %}
+
+{% block content %}
+  <div class="page-title">Orçamentos</div>
+
+  <form method="post" class="add-orc-card" style="margin-bottom:24px;">
+    {% csrf_token %}
+    <h3>Adicionar orçamento</h3>
+    <div class="form-row">
+      <div class="field">
+        <label for="{{ form.codigo.id_for_label }}">Código</label>
+        {{ form.codigo }}
+        {% for error in form.codigo.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
+        <label for="{{ form.nome.id_for_label }}">Nome / Descrição</label>
+        {{ form.nome }}
+        {% for error in form.nome.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+    </div>
+    <button class="btn btn-primary btn-sm" type="submit">Adicionar</button>
+  </form>
+
+  <div class="orc-grid">
+    {% for orcamento in orcamentos %}
+      <div class="orc-card">
+        <div>
+          <div class="orc-code">{{ orcamento.codigo }}</div>
+          <div class="orc-name">
+            {% if orcamento.nome %}{{ orcamento.nome }}{% else %}<em style="opacity:.4">sem nome</em>{% endif %}
+            {% if not orcamento.ativo %}<span class="muted-inline"> • inativo</span>{% endif %}
+          </div>
+        </div>
+        <div class="orc-actions">
+          <form method="post" action="{% url 'horas:orcamento_remover' orcamento.pk %}">
+            {% csrf_token %}
+            <button class="btn-del" type="submit">✕</button>
+          </form>
+        </div>
+      </div>
+    {% empty %}
+      <div class="empty-inline">Nenhum orçamento cadastrado.</div>
+    {% endfor %}
+  </div>
+{% endblock %}

@@ -1,2 +1,2 @@
-web: gunicorn magnusrotinas.wsgi --log-file -
-web: python manage.py migrate && gunicorn magnusrotinas.wsgi
+web: gunicorn magnusRotinas_django.wsgi --log-file -
+web: python manage.py migrate && gunicorn magnusRotinas_django.wsgi

@@ -1,6 +1,12 @@
 from django.contrib import admin
 
-from .models import Orcamento, Registro
+from .models import Fase, Orcamento, Registro
+
+
+@admin.register(Fase)
+class FaseAdmin(admin.ModelAdmin):
+    list_display = ('codigo', 'descricao', 'criado_em')
+    search_fields = ('codigo', 'descricao')
 
 
 @admin.register(Orcamento)
@@ -12,8 +18,8 @@ class OrcamentoAdmin(admin.ModelAdmin):
 
 @admin.register(Registro)
 class RegistroAdmin(admin.ModelAdmin):
-    list_display = ('user', 'data', 'hora_inicio', 'hora_fim', 'orcamento', 'total_formatado')
-    list_filter = ('user', 'data', 'orcamento')
-    search_fields = ('user__username', 'descricao', 'orcamento__codigo', 'orcamento__nome')
+    list_display = ('user', 'data', 'hora_inicio', 'hora_fim', 'orcamento', 'fase', 'total_formatado')
+    list_filter = ('user', 'data', 'orcamento', 'fase')
+    search_fields = ('user__username', 'descricao', 'orcamento__codigo', 'orcamento__nome', 'fase__codigo', 'fase__descricao')
 
 # Register your models here.

@@ -4,6 +4,19 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 
+
+class Fase(models.Model):
+    codigo = models.CharField(max_length=20, unique=True)
+    descricao = models.CharField(max_length=200)
+    criado_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['codigo']
+
+    def __str__(self):
+        return f'{self.codigo} - {self.descricao}'
+
+
 class Orcamento(models.Model):
     codigo = models.CharField(max_length=20, unique=True)
     nome = models.CharField(max_length=200, blank=True)
@@ -25,6 +38,11 @@ class Registro(models.Model):
     )
     orcamento = models.ForeignKey(
         Orcamento,
+        on_delete=models.PROTECT,
+        related_name='registros',
+    )
+    fase = models.ForeignKey(
+        Fase,
         on_delete=models.PROTECT,
         related_name='registros',
     )
@@ -61,6 +79,8 @@ class Registro(models.Model):
             errors['hora_fim'] = 'A hora final deve ser maior que a hora inicial.'
         if self.orcamento_id and not self.orcamento.ativo:
             errors['orcamento'] = 'Selecione um orçamento ativo.'
+        if not self.fase_id:
+            errors['fase'] = 'Selecione uma fase.'
         if errors:
             raise ValidationError(errors)
 

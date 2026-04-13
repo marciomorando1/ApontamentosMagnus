@@ -13,8 +13,8 @@ from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.generic import RedirectView, TemplateView
 
-from .forms import OrcamentoForm, RegistroForm
-from .models import Orcamento, Registro
+from .forms import FaseForm, OrcamentoForm, RegistroForm
+from .models import Fase, Orcamento, Registro
 
 
 def _build_timer_rows_from_post(request):
@@ -51,7 +51,7 @@ def _parse_date(value):
 
 
 def _base_registros_queryset(user):
-    return Registro.objects.select_related('orcamento').filter(user=user)
+    return Registro.objects.select_related('orcamento', 'fase').filter(user=user)
 
 
 def _filter_registros(request):
@@ -141,6 +141,7 @@ class TimerView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
         common_data = {
             'data': request.POST.get('data', ''),
             'orcamento': request.POST.get('orcamento', ''),
+            'fase': request.POST.get('fase', ''),
         }
 
         for row in rows:
@@ -297,6 +298,27 @@ class OrcamentosView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
         return self.render_to_response(self.get_context_data(form=form))
 
 
+class FasesView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
+    template_name = 'horas/fases.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['section'] = 'fases'
+        context['form'] = kwargs.get('form') or FaseForm()
+        context['fases'] = Fase.objects.order_by('codigo')
+        return context
+
+    def post(self, request, *args, **kwargs):
+        form = FaseForm(request.POST)
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Fase adicionada com sucesso.')
+            return redirect('horas:fases')
+
+        messages.error(request, 'Corrija os campos destacados antes de adicionar a fase.')
+        return self.render_to_response(self.get_context_data(form=form))
+
+
 @method_decorator(login_required(login_url='login'), name='dispatch')
 class OrcamentoDeleteView(View):
     def post(self, request, pk):
@@ -312,6 +334,15 @@ class OrcamentoDeleteView(View):
                 'O orçamento possui registros vinculados e foi desativado em vez de removido.',
             )
         return redirect('horas:orcamentos')
+
+
+@method_decorator(login_required(login_url='login'), name='dispatch')
+class FaseDeleteView(View):
+    def post(self, request, pk):
+        fase = get_object_or_404(Fase, pk=pk)
+        fase.delete()
+        messages.success(request, 'Fase removida.')
+        return redirect('horas:fases')
 
 
 @login_required(login_url='login')

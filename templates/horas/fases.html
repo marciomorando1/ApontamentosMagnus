@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+
+{% block title %}Fases | Apontamento de Horas{% endblock %}
+
+{% block content %}
+  <div class="page-title">Fases</div>
+
+  <form method="post" class="add-orc-card" style="margin-bottom:24px;">
+    {% csrf_token %}
+    <h3>Adicionar fase</h3>
+    <div class="form-row">
+      <div class="field">
+        <label for="{{ form.codigo.id_for_label }}">Código</label>
+        {{ form.codigo }}
+        {% for error in form.codigo.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
+        <label for="{{ form.descricao.id_for_label }}">Descrição</label>
+        {{ form.descricao }}
+        {% for error in form.descricao.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+    </div>
+    <button class="btn btn-primary btn-sm" type="submit">Adicionar</button>
+  </form>
+
+  <div class="orc-grid">
+    {% for fase in fases %}
+      <div class="orc-card">
+        <div>
+          <div class="orc-code">{{ fase.codigo }}</div>
+          <div class="orc-name">
+            {% if fase.descricao %}{{ fase.descricao }}{% else %}<em style="opacity:.4">sem descrição</em>{% endif %}
+          </div>
+        </div>
+        <div class="orc-actions">
+          <form method="post" action="{% url 'horas:fase_remover' fase.pk %}">
+            {% csrf_token %}
+            <button class="btn-del" type="submit">✕</button>
+          </form>
+        </div>
+      </div>
+    {% empty %}
+      <div class="empty-inline">Nenhuma fase cadastrada.</div>
+    {% endfor %}
+  </div>
+{% endblock %}

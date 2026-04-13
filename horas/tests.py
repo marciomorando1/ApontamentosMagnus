@@ -5,7 +5,7 @@ from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.urls import reverse
 
-from .models import Orcamento, Registro
+from .models import Fase, Orcamento, Registro
 
 
 User = get_user_model()
@@ -16,11 +16,13 @@ class AuthenticatedTestCase(TestCase):
         self.user = User.objects.create_user(username='tester', password='senha-segura')
         self.other_user = User.objects.create_user(username='other', password='senha-segura')
         self.client.force_login(self.user)
+        self.fase = Fase.objects.create(codigo='101', descricao='Comercial - Venda')
 
-    def criar_registro(self, *, orcamento, user=None, **kwargs):
+    def criar_registro(self, *, orcamento, fase=None, user=None, **kwargs):
         defaults = {
             'user': user or self.user,
             'orcamento': orcamento,
+            'fase': fase or self.fase,
             'data': date.today(),
             'hora_inicio': '08:00',
             'hora_fim': '09:00',
@@ -34,11 +36,13 @@ class RegistroModelTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username='model-user', password='senha-segura')
         self.orcamento = Orcamento.objects.create(codigo='17275', nome='Projeto teste')
+        self.fase = Fase.objects.create(codigo='101', descricao='Comercial - Venda')
 
     def test_rejeita_data_futura(self):
         registro = Registro(
             user=self.user,
             orcamento=self.orcamento,
+            fase=self.fase,
             data=date.today() + timedelta(days=1),
             hora_inicio='08:00',
             hora_fim='09:00',
@@ -50,9 +54,21 @@ class RegistroModelTests(TestCase):
         registro = Registro(
             user=self.user,
             orcamento=self.orcamento,
+            fase=self.fase,
             data=date.today(),
             hora_inicio='10:00',
             hora_fim='10:00',
+        )
+        with self.assertRaises(ValidationError):
+            registro.full_clean()
+
+    def test_rejeita_registro_sem_fase(self):
+        registro = Registro(
+            user=self.user,
+            orcamento=self.orcamento,
+            data=date.today(),
+            hora_inicio='08:00',
+            hora_fim='09:00',
         )
         with self.assertRaises(ValidationError):
             registro.full_clean()
@@ -69,6 +85,7 @@ class TimerViewTests(AuthenticatedTestCase):
             data={
                 'data': date.today().isoformat(),
                 'orcamento': self.orcamento.pk,
+                'fase': self.fase.pk,
                 'hora_inicio': '08:00',
                 'hora_fim': '09:30',
                 'descricao': 'Implementação inicial',
@@ -86,6 +103,7 @@ class TimerViewTests(AuthenticatedTestCase):
                 'submission_mode': 'manual',
                 'data': date.today().isoformat(),
                 'orcamento': self.orcamento.pk,
+                'fase': self.fase.pk,
                 'hora_inicio': '08:00',
                 'hora_fim': '09:00',
                 'descricao': 'Primeira atividade',
@@ -98,6 +116,21 @@ class TimerViewTests(AuthenticatedTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(Registro.objects.count(), 3)
         self.assertEqual(Registro.objects.filter(user=self.user).count(), 3)
+
+    def test_nao_cria_registro_sem_fase(self):
+        response = self.client.post(
+            reverse('horas:timer'),
+            data={
+                'data': date.today().isoformat(),
+                'orcamento': self.orcamento.pk,
+                'hora_inicio': '08:00',
+                'hora_fim': '09:30',
+                'descricao': 'Sem fase',
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Registro.objects.count(), 0)
+        self.assertContains(response, 'Selecione')
 
 
 class RegistrosViewTests(AuthenticatedTestCase):
@@ -170,6 +203,7 @@ class RegistrosViewTests(AuthenticatedTestCase):
             data={
                 'data': '2026-04-08',
                 'orcamento': self.orcamento.pk,
+                'fase': self.fase.pk,
                 'hora_inicio': '10:30',
                 'hora_fim': '11:45',
                 'descricao': 'Descrição alterada',
@@ -211,6 +245,7 @@ class RegistrosViewTests(AuthenticatedTestCase):
             data={
                 'data': '2026-04-08',
                 'orcamento': self.orcamento.pk,
+                'fase': self.fase.pk,
                 'hora_inicio': '10:15',
                 'hora_fim': '11:15',
                 'descricao': 'Primeira edicao',
@@ -223,6 +258,7 @@ class RegistrosViewTests(AuthenticatedTestCase):
             data={
                 'data': '2026-04-08',
                 'orcamento': self.orcamento.pk,
+                'fase': self.fase.pk,
                 'hora_inicio': '10:30',
                 'hora_fim': '11:30',
                 'descricao': 'Segunda edicao',
@@ -251,6 +287,7 @@ class RegistrosViewTests(AuthenticatedTestCase):
             data={
                 'data': '2026-04-08',
                 'orcamento': self.orcamento.pk,
+                'fase': self.fase.pk,
                 'hora_inicio': '10:00',
                 'hora_fim': '11:30',
                 'descricao': 'Teste filtros',
@@ -365,4 +402,41 @@ class AuthenticationFlowTests(TestCase):
         response = self.client.get(reverse('horas:timer'))
 
         self.assertRedirects(response, f"{reverse('login')}?next={reverse('horas:timer')}")
+
+
+class FasesViewTests(AuthenticatedTestCase):
+    def test_lista_fases_cadastradas(self):
+        fase = Fase.objects.create(codigo='102', descricao='Comercial - Pós-Venda')
+
+        response = self.client.get(reverse('horas:fases'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, fase.codigo)
+        self.assertContains(response, fase.descricao)
+
+    def test_cadastra_fase_valida(self):
+        response = self.client.post(
+            reverse('horas:fases'),
+            data={
+                'codigo': '202',
+                'descricao': 'Construção e Modelagem',
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(
+            Fase.objects.filter(codigo='202', descricao='Construção e Modelagem').exists()
+        )
+
+    def test_remove_fase(self):
+        fase = Fase.objects.create(codigo='299', descricao='Horas Fora do Escopo')
+
+        response = self.client.post(
+            reverse('horas:fase_remover', args=[fase.pk]),
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Fase.objects.filter(pk=fase.pk).exists())
 

@@ -3,7 +3,7 @@ from datetime import date
 from django import forms
 from django.db.models import Q
 
-from .models import Orcamento, Registro
+from .models import Fase, Orcamento, Registro
 
 
 class DateInput(forms.DateInput):
@@ -21,7 +21,7 @@ class TimeInput(forms.TimeInput):
 class RegistroForm(forms.ModelForm):
     class Meta:
         model = Registro
-        fields = ['data', 'orcamento', 'hora_inicio', 'hora_fim', 'descricao']
+        fields = ['data', 'orcamento', 'fase', 'hora_inicio', 'hora_fim', 'descricao']
         widgets = {
             'data': DateInput(),
             'hora_inicio': TimeInput(format='%H:%M'),
@@ -39,6 +39,9 @@ class RegistroForm(forms.ModelForm):
         self.fields['orcamento'].queryset = queryset.order_by('codigo')
         self.fields['orcamento'].empty_label = '— selecione —'
 
+        self.fields['fase'].queryset = Fase.objects.order_by('codigo')
+        self.fields['fase'].empty_label = '— selecione —'
+
 
 class OrcamentoForm(forms.ModelForm):
     class Meta:
@@ -47,3 +50,15 @@ class OrcamentoForm(forms.ModelForm):
 
     def clean_codigo(self):
         return self.cleaned_data['codigo'].strip()
+
+
+class FaseForm(forms.ModelForm):
+    class Meta:
+        model = Fase
+        fields = ['codigo', 'descricao']
+
+    def clean_codigo(self):
+        return self.cleaned_data['codigo'].strip()
+
+    def clean_descricao(self):
+        return self.cleaned_data['descricao'].strip()

@@ -29,6 +29,9 @@
         <a class="nav-item {% if section == 'orcamentos' %}active{% endif %}" href="{% url 'horas:orcamentos' %}">
           <span class="nav-icon">🗂</span> Orçamentos
         </a>
+        <a class="nav-item {% if section == 'fases' %}active{% endif %}" href="{% url 'horas:fases' %}">
+          <span class="nav-icon">+</span> Fases
+        </a>
       </nav>
       <div class="sidebar-footer">
         <div class="user-chip">{{ user.username }}</div>

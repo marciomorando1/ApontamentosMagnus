@@ -1,2 +1,2 @@
 release: python manage.py migrate
-web: gunicorn magnusRotinas_django.wsgi --log-file -
+web: python manage.py migrate && python manage.py collectstatic --noinput && gunicorn magnusRotinas_django.wsgi --log-file -

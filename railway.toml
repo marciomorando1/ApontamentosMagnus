@@ -1,9 +1,5 @@
-[build]
-builder = "RAILPACK"
-
 [deploy]
 preDeployCommand = "python manage.py migrate"
-startCommand = "gunicorn magnusRotinas_django.wsgi --log-file -"
 healthcheckPath = "/login/"
 healthcheckTimeout = 120
 restartPolicyType = "ON_FAILURE"

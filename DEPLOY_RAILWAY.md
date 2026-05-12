@@ -1,13 +1,14 @@
 # Deploy Railway
 
-Este projeto usa `railway.toml` para forcar o fluxo de deploy em producao.
+Este projeto usa o `Procfile` como protecao principal e o `railway.toml` apenas para reforcar a migration antes do deploy.
 
 ## O que roda no deploy
 
 - `preDeployCommand`: `python manage.py migrate`
-- `startCommand`: `gunicorn magnusRotinas_django.wsgi --log-file -`
+- `release`: `python manage.py migrate`
+- `web`: `python manage.py migrate && python manage.py collectstatic --noinput && gunicorn magnusRotinas_django.wsgi --log-file -`
 
-Assim, a migration roda antes do web subir e o deploy deve falhar cedo se o banco nao estiver consistente.
+Assim, a migration roda antes do deploy e, no boot do web, o projeto ainda garante novamente `migrate` e `collectstatic` antes de subir o `gunicorn`.
 
 ## Fluxo recomendado
 
@@ -33,4 +34,4 @@ python manage.py showmigrations horas
 ## Observacoes
 
 - O host interno `postgres.railway.internal` so resolve dentro da rede privada da Railway.
-- Se a migration falhar no `preDeployCommand`, o deploy nao deve prosseguir para evitar erro 500 no app.
+- Se `migrate` ou `collectstatic` falharem no boot, o processo web nao sobe, evitando publicar uma versao sem banco ou sem CSS.

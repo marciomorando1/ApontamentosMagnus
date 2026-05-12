@@ -235,6 +235,25 @@ class RegistroDeleteView(View):
         return redirect(destino)
 
 
+@method_decorator(login_required(login_url='login'), name='dispatch')
+class RegistroProcessarView(View):
+    def post(self, request, pk):
+        registro = get_object_or_404(_base_registros_queryset(request.user), pk=pk)
+        if registro.processado == Registro.PROCESSADO_SIM:
+            registro.processado = Registro.PROCESSADO_NAO
+            messages.success(request, 'Registro desmarcado como processado.')
+        else:
+            registro.processado = Registro.PROCESSADO_SIM
+            messages.success(request, 'Registro marcado como processado.')
+        registro.save(update_fields=['processado', 'atualizado_em'])
+
+        query = _query_string(request)
+        destino = reverse('horas:registros')
+        if query:
+            destino = f'{destino}?{query}'
+        return redirect(destino)
+
+
 class ResumoView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
     template_name = 'horas/resumo.html'
 

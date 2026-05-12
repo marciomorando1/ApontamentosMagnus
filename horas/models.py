@@ -31,6 +31,13 @@ class Orcamento(models.Model):
 
 
 class Registro(models.Model):
+    PROCESSADO_SIM = 'S'
+    PROCESSADO_NAO = 'N'
+    PROCESSADO_CHOICES = (
+        (PROCESSADO_SIM, 'Sim'),
+        (PROCESSADO_NAO, 'Não'),
+    )
+
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -49,6 +56,11 @@ class Registro(models.Model):
     data = models.DateField()
     hora_inicio = models.TimeField()
     hora_fim = models.TimeField()
+    processado = models.CharField(
+        max_length=1,
+        choices=PROCESSADO_CHOICES,
+        default=PROCESSADO_NAO,
+    )
     descricao = models.TextField(blank=True)
     criado_em = models.DateTimeField(auto_now_add=True)
     atualizado_em = models.DateTimeField(auto_now=True)

@@ -164,6 +164,20 @@ th {
 td { padding: 11px 14px; font-size: 13px; border-bottom: 1px solid var(--border); vertical-align: top; }
 tr:last-child td { border-bottom: none; }
 tr:hover td { background: rgba(255,255,255,0.02); }
+tr.processed-row td {
+  background: rgba(200,245,62,0.1) !important;
+  box-shadow: inset 0 1px 0 rgba(200,245,62,0.06);
+}
+tr.processed-row:hover td {
+  background: rgba(200,245,62,0.14) !important;
+}
+tr.processed-row .badge-code {
+  background: rgba(200,245,62,0.12);
+  border-color: rgba(200,245,62,0.28);
+}
+tr.processed-row .desc {
+  color: #c9d3b2;
+}
 .mono { font-family: var(--mono); font-size: 12px; }
 .accent-text { color: var(--accent); }
 .desc { max-width: 280px; color: var(--muted); font-size: 12px; }
@@ -242,6 +256,41 @@ tr:hover td { background: rgba(255,255,255,0.02); }
   color: var(--accent);
   border-color: var(--accent);
   background: rgba(200,245,62,0.08);
+}
+.btn-ok {
+  appearance: none;
+  -webkit-appearance: none;
+  justify-content: center;
+  min-width: 58px;
+  font-weight: 700;
+  padding: 4px 10px;
+  box-shadow: none;
+  outline: none;
+  background-image: none;
+}
+.btn-inline.btn-ok.is-pending {
+  color: var(--danger) !important;
+  border-color: var(--danger) !important;
+  background-color: rgba(255,95,87,0.18) !important;
+  background-image: none !important;
+}
+.btn-inline.btn-ok.is-pending:hover {
+  color: #ff7b73 !important;
+  border-color: #ff7b73 !important;
+  background-color: rgba(255,95,87,0.24) !important;
+  background-image: none !important;
+}
+.btn-inline.btn-ok.is-processed {
+  color: #0f0f0f !important;
+  border-color: var(--accent) !important;
+  background-color: var(--accent) !important;
+  background-image: none !important;
+}
+.btn-inline.btn-ok.is-processed:hover {
+  color: #0f0f0f !important;
+  border-color: var(--accent) !important;
+  background-color: #d8ff5a !important;
+  background-image: none !important;
 }
 .toast-stack { position: fixed; right: 24px; bottom: 24px; display: flex; flex-direction: column; gap: 10px; z-index: 999; pointer-events: none; }
 .toast {

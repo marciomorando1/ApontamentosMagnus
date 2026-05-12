@@ -39,18 +39,29 @@
           <th>Total</th>
           <th>Orçamento</th>
           <th>Descrição</th>
+          <th>Proc.</th>
           <th></th>
         </tr>
       </thead>
       <tbody>
         {% for registro in registros %}
-          <tr>
+          <tr class="{% if registro.processado == 'S' %}processed-row{% endif %}">
             <td class="mono">{{ registro.data|date:'d/m/Y' }}</td>
             <td class="mono">{{ registro.hora_inicio|time:'H:i' }}</td>
             <td class="mono">{{ registro.hora_fim|time:'H:i' }}</td>
             <td class="mono accent-text">{{ registro.total_formatado }}</td>
             <td><span class="badge-code">{{ registro.orcamento.codigo }}</span></td>
             <td class="desc">{{ registro.descricao|default:'—' }}</td>
+            <td>
+              <form method="post" action="{% url 'horas:registro_processar' registro.pk %}?de={{ filtros.de }}&ate={{ filtros.ate }}&orcamento={{ filtros.orcamento }}">
+                {% csrf_token %}
+                <button
+                  class="btn-inline btn-ok {% if registro.processado == 'S' %}is-processed{% else %}is-pending{% endif %}"
+                  type="submit"
+                  title="{% if registro.processado == 'S' %}Desmarcar como processado{% else %}Marcar como processado{% endif %}"
+                >&#10003;</button>
+              </form>
+            </td>
             <td class="actions-cell">
               <form method="get" action="{% url 'horas:registro_editar' registro.pk %}">
                 {% if filtros.de %}<input type="hidden" name="de" value="{{ filtros.de }}">{% endif %}
@@ -66,7 +77,7 @@
           </tr>
         {% empty %}
           <tr>
-            <td colspan="7">
+            <td colspan="8">
               <div class="empty-state">
                 <div class="empty-icon">📭</div>
                 Nenhum registro encontrado.

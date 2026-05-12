@@ -73,6 +73,17 @@ class RegistroModelTests(TestCase):
         with self.assertRaises(ValidationError):
             registro.full_clean()
 
+    def test_novo_registro_inicia_como_nao_processado(self):
+        registro = Registro.objects.create(
+            user=self.user,
+            orcamento=self.orcamento,
+            fase=self.fase,
+            data=date.today(),
+            hora_inicio='08:00',
+            hora_fim='09:00',
+        )
+        self.assertEqual(registro.processado, Registro.PROCESSADO_NAO)
+
 
 class TimerViewTests(AuthenticatedTestCase):
     def setUp(self):
@@ -343,6 +354,53 @@ class RegistrosViewTests(AuthenticatedTestCase):
 
         self.assertEqual(response.status_code, 404)
         self.assertTrue(Registro.objects.filter(pk=registro.pk).exists())
+
+    def test_marca_registro_como_processado(self):
+        registro = self.criar_registro(
+            orcamento=self.orcamento,
+            data=date.today(),
+            descricao='Pendente',
+        )
+
+        response = self.client.post(
+            reverse('horas:registro_processar', args=[registro.pk]),
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        registro.refresh_from_db()
+        self.assertEqual(registro.processado, Registro.PROCESSADO_SIM)
+
+    def test_desmarca_registro_processado(self):
+        registro = self.criar_registro(
+            orcamento=self.orcamento,
+            data=date.today(),
+            descricao='Ja processado',
+            processado=Registro.PROCESSADO_SIM,
+        )
+
+        response = self.client.post(
+            reverse('horas:registro_processar', args=[registro.pk]),
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        registro.refresh_from_db()
+        self.assertEqual(registro.processado, Registro.PROCESSADO_NAO)
+
+    def test_nao_permite_processar_registro_de_outro_usuario(self):
+        registro = self.criar_registro(
+            user=self.other_user,
+            orcamento=self.orcamento,
+            data=date.today(),
+            descricao='Privado',
+        )
+
+        response = self.client.post(reverse('horas:registro_processar', args=[registro.pk]))
+
+        self.assertEqual(response.status_code, 404)
+        registro.refresh_from_db()
+        self.assertEqual(registro.processado, Registro.PROCESSADO_NAO)
 
 
 class ResumoViewTests(AuthenticatedTestCase):

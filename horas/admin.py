@@ -18,8 +18,8 @@ class OrcamentoAdmin(admin.ModelAdmin):
 
 @admin.register(Registro)
 class RegistroAdmin(admin.ModelAdmin):
-    list_display = ('user', 'data', 'hora_inicio', 'hora_fim', 'orcamento', 'fase', 'total_formatado')
-    list_filter = ('user', 'data', 'orcamento', 'fase')
+    list_display = ('user', 'data', 'hora_inicio', 'hora_fim', 'orcamento', 'fase', 'processado', 'total_formatado')
+    list_filter = ('user', 'data', 'orcamento', 'fase', 'processado')
     search_fields = ('user__username', 'descricao', 'orcamento__codigo', 'orcamento__nome', 'fase__codigo', 'fase__descricao')
 
 # Register your models here.

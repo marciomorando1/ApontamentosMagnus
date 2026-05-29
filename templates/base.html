@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Apontamento de Horas{% endblock %}</title>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{% static 'css/style.css' %}">
+  <link rel="stylesheet" href="{% static 'css/style.css' %}?v=estimativas-layout-2">
 </head>
 <body class="{% if not user.is_authenticated %}auth-body{% endif %}">
   {% if user.is_authenticated %}
@@ -28,6 +28,9 @@
         </a>
         <a class="nav-item {% if section == 'orcamentos' %}active{% endif %}" href="{% url 'horas:orcamentos' %}">
           <span class="nav-icon">🗂</span> Orçamentos
+        </a>
+        <a class="nav-item {% if section == 'estimativas' %}active{% endif %}" href="{% url 'horas:estimativas' %}">
+          <span class="nav-icon">E</span> Estimativas
         </a>
         <a class="nav-item {% if section == 'fases' %}active{% endif %}" href="{% url 'horas:fases' %}">
           <span class="nav-icon">+</span> Fases

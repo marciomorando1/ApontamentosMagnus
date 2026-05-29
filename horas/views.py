@@ -1,10 +1,19 @@
 import csv
+import re
+import unicodedata
+import zipfile
 from collections import defaultdict
 from datetime import date, datetime
+from decimal import Decimal
+from io import BytesIO
+from pathlib import Path
+from xml.etree import ElementTree as ET
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db import transaction
 from django.db.models import ProtectedError
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect
@@ -13,8 +22,21 @@ from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.generic import RedirectView, TemplateView
 
-from .forms import FaseForm, OrcamentoForm, RegistroForm
-from .models import Fase, Orcamento, Registro
+from .forms import (
+    EstimativaForm,
+    EstimativaItemCreateFormSet,
+    EstimativaItemFormSet,
+    FaseForm,
+    OrcamentoForm,
+    RegistroForm,
+)
+from .models import Estimativa, Fase, Orcamento, Registro
+
+
+XLSX_NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
+REL_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
+ET.register_namespace('', XLSX_NS)
+ET.register_namespace('r', REL_NS)
 
 
 def _build_timer_rows_from_post(request):
@@ -82,10 +104,253 @@ def _query_string(request):
     return request.META.get('QUERY_STRING', '')
 
 
+def _sanitize_filename_part(value):
+    value = re.sub(r'[<>:"/\\|?*\r\n\t]+', ' ', value or '')
+    value = re.sub(r'\s+', ' ', value).strip(' .')
+    return value or 'Sem preenchimento'
+
+
 def _format_decimal_hours(value):
     total_minutes = int(round((value or 0) * 60))
     hours, minutes = divmod(total_minutes, 60)
     return f'{hours}h{minutes:02d}'
+
+
+def _base_estimativas_queryset(user):
+    return Estimativa.objects.prefetch_related('itens').filter(user=user)
+
+
+def _filter_estimativas(request):
+    queryset = _base_estimativas_queryset(request.user)
+    data_inicial = _parse_date(request.GET.get('de'))
+    data_final = _parse_date(request.GET.get('ate'))
+    cliente = request.GET.get('cliente', '').strip()
+
+    if data_inicial and data_final and data_inicial > data_final:
+        messages.error(request, 'A data inicial deve ser menor ou igual à data final.')
+        data_inicial, data_final = data_final, data_inicial
+
+    if data_inicial:
+        queryset = queryset.filter(criado_em__date__gte=data_inicial)
+    if data_final:
+        queryset = queryset.filter(criado_em__date__lte=data_final)
+    if cliente:
+        queryset = queryset.filter(cliente__icontains=cliente)
+
+    return queryset, {
+        'de': data_inicial.isoformat() if data_inicial else '',
+        'ate': data_final.isoformat() if data_final else '',
+        'cliente': cliente,
+    }
+
+
+def _save_estimativa_formset(formset):
+    itens = formset.save(commit=False)
+
+    for deleted_item in formset.deleted_objects:
+        deleted_item.delete()
+
+    order = 1
+    for item in itens:
+        if not item.ordem:
+            item.ordem = order
+        item.save()
+        order += 1
+
+
+def _cell_position(ref):
+    match = re.match(r'([A-Z]+)(\d+)', ref)
+    if not match:
+        return 0, 0
+    col, row = match.groups()
+    col_num = 0
+    for char in col:
+        col_num = col_num * 26 + ord(char) - ord('A') + 1
+    return int(row), col_num
+
+
+def _find_or_create_row(sheet_data, row_number):
+    ns = {'m': XLSX_NS}
+    for row in sheet_data.findall('m:row', ns):
+        if int(row.attrib.get('r', '0')) == row_number:
+            return row
+
+    row = ET.Element(f'{{{XLSX_NS}}}row', {'r': str(row_number)})
+    inserted = False
+    for index, existing in enumerate(list(sheet_data)):
+        if int(existing.attrib.get('r', '0')) > row_number:
+            sheet_data.insert(index, row)
+            inserted = True
+            break
+    if not inserted:
+        sheet_data.append(row)
+    return row
+
+
+def _find_or_create_cell(row, ref):
+    ns = {'m': XLSX_NS}
+    for cell in row.findall('m:c', ns):
+        if cell.attrib.get('r') == ref:
+            return cell
+
+    cell = ET.Element(f'{{{XLSX_NS}}}c', {'r': ref})
+    _, target_col = _cell_position(ref)
+    inserted = False
+    for index, existing in enumerate(list(row)):
+        _, existing_col = _cell_position(existing.attrib.get('r', ''))
+        if existing_col > target_col:
+            row.insert(index, cell)
+            inserted = True
+            break
+    if not inserted:
+        row.append(cell)
+    return cell
+
+
+def _set_cell_value(sheet_data, ref, value):
+    row_number, _ = _cell_position(ref)
+    row = _find_or_create_row(sheet_data, row_number)
+    cell = _find_or_create_cell(row, ref)
+    for child in list(cell):
+        cell.remove(child)
+
+    if isinstance(value, Decimal):
+        value = float(value)
+
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        cell.attrib.pop('t', None)
+        ET.SubElement(cell, f'{{{XLSX_NS}}}v').text = str(value)
+        return
+
+    text = '' if value is None else str(value)
+    cell.attrib['t'] = 'inlineStr'
+    inline = ET.SubElement(cell, f'{{{XLSX_NS}}}is')
+    text_node = ET.SubElement(inline, f'{{{XLSX_NS}}}t')
+    if text.strip() != text:
+        text_node.attrib['{http://www.w3.org/XML/1998/namespace}space'] = 'preserve'
+    text_node.text = text
+
+
+def _clear_cell(sheet_data, ref):
+    row_number, _ = _cell_position(ref)
+    row = _find_or_create_row(sheet_data, row_number)
+    cell = _find_or_create_cell(row, ref)
+    for child in list(cell):
+        cell.remove(child)
+    cell.attrib.pop('t', None)
+
+
+def _excel_time_value(hours):
+    return float((hours or Decimal('0')) / Decimal('24'))
+
+
+def _normalize_estimativa_text(value):
+    text = unicodedata.normalize('NFKD', value or '')
+    text = ''.join(char for char in text if not unicodedata.combining(char))
+    return re.sub(r'\s+', ' ', text).strip().casefold()
+
+
+def _item_horas_estimadas(item):
+    return (item.horas_analise or Decimal('0')) + (item.horas_atividade or Decimal('0'))
+
+
+def _build_ehm_totals(itens):
+    activity_by_resource = defaultdict(lambda: Decimal('0'))
+    analysis_hours = Decimal('0')
+    gp_hours = Decimal('0')
+
+    for item in itens:
+        activity_by_resource[_normalize_estimativa_text(item.recurso)] += item.horas_atividade or Decimal('0')
+        analysis_hours += item.horas_analise or Decimal('0')
+        gp_hours += item.horas_gp or Decimal('0')
+
+    if gp_hours == 0:
+        gp_hours = Decimal('1')
+
+    rows = {
+        23: (activity_by_resource['consultoria de implantacao'], Decimal('238')),
+        24: (gp_hours, Decimal('250')),
+        25: (activity_by_resource['desenvolvedor'], Decimal('255')),
+        26: (activity_by_resource['analista de infraestrutura'], Decimal('290')),
+        27: (activity_by_resource['consultoria especializada'], Decimal('300')),
+        28: (analysis_hours, Decimal('238')),
+        29: (Decimal('0'), Decimal('230')),
+    }
+    total_proposta = sum((hours * rate for row, (hours, rate) in rows.items() if row <= 28), Decimal('0'))
+    total_sem_analise = total_proposta - (analysis_hours * Decimal('238'))
+    total_horas = sum((hours for row, (hours, _) in rows.items() if row <= 28), Decimal('0'))
+    return rows, total_horas, total_proposta, total_sem_analise
+
+
+def _build_estimativa_xlsx(estimativa):
+    template_path = Path(settings.BASE_DIR) / 'templates_xlsx' / 'estimativa_template.xlsx'
+    if not template_path.exists():
+        raise FileNotFoundError('Modelo de estimativa XLSX nao encontrado.')
+
+    output = BytesIO()
+    with zipfile.ZipFile(template_path, 'r') as source, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target:
+        workbook = ET.fromstring(source.read('xl/workbook.xml'))
+        rels = ET.fromstring(source.read('xl/_rels/workbook.xml.rels'))
+        relmap = {rel.attrib['Id']: rel.attrib['Target'] for rel in rels}
+        sheet_path = None
+        for sheet in workbook.findall(f'{{{XLSX_NS}}}sheets/{{{XLSX_NS}}}sheet'):
+            if 'Escopo' in sheet.attrib.get('name', ''):
+                target_path = relmap[sheet.attrib[f'{{{REL_NS}}}id']]
+                sheet_path = 'xl/' + target_path.lstrip('/').replace('../', '')
+                break
+
+        if not sheet_path:
+            raise ValueError('Aba de escopo nao encontrada no modelo XLSX.')
+
+        sheet_root = ET.fromstring(source.read(sheet_path))
+        sheet_data = sheet_root.find(f'{{{XLSX_NS}}}sheetData')
+        _set_cell_value(sheet_data, 'C2', estimativa.cliente)
+        _set_cell_value(sheet_data, 'C3', estimativa.solicitante)
+        _set_cell_value(sheet_data, 'C5', estimativa.projeto)
+        _set_cell_value(sheet_data, 'C6', estimativa.sistema)
+
+        itens = list(estimativa.itens.all())
+        ehm_rows, total_horas, total_proposta, total_sem_analise = _build_ehm_totals(itens)
+        _set_cell_value(sheet_data, 'C19', _excel_time_value(total_horas))
+        _set_cell_value(sheet_data, 'C20', total_proposta)
+        _set_cell_value(sheet_data, 'C21', total_sem_analise)
+
+        for row_number, (hours, rate) in ehm_rows.items():
+            _set_cell_value(sheet_data, f'C{row_number}', _excel_time_value(hours))
+            _set_cell_value(sheet_data, f'H{row_number}', hours * rate)
+
+        for index in range(max(len(itens), 10)):
+            row_number = 37 + index
+            if index < len(itens):
+                item = itens[index]
+                horas_estimadas = _item_horas_estimadas(item)
+                values = {
+                    'A': index + 1,
+                    'B': item.modulo_processo,
+                    'C': item.recurso,
+                    'D': item.escopo,
+                    'E': _excel_time_value(item.horas_analise),
+                    'F': _excel_time_value(item.horas_atividade),
+                    'G': _excel_time_value(item.horas_gp),
+                    'H': _excel_time_value(horas_estimadas),
+                }
+            else:
+                values = {'A': '', 'B': '', 'C': '', 'D': '', 'E': '', 'F': '', 'G': '', 'H': ''}
+
+            for column, value in values.items():
+                ref = f'{column}{row_number}'
+                if value == '':
+                    _clear_cell(sheet_data, ref)
+                else:
+                    _set_cell_value(sheet_data, ref, value)
+
+        sheet_bytes = ET.tostring(sheet_root, encoding='utf-8', xml_declaration=True)
+        for item in source.infolist():
+            data = sheet_bytes if item.filename == sheet_path else source.read(item.filename)
+            target.writestr(item, data)
+
+    output.seek(0)
+    return output
 
 
 class SidebarContextMixin:
@@ -188,6 +453,86 @@ class RegistrosView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
         }
         context['query_string'] = _query_string(self.request)
         return context
+
+
+class EstimativasView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
+    template_name = 'horas/estimativas.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        estimativas_queryset, filtros = _filter_estimativas(self.request)
+        estimativas = list(estimativas_queryset)
+        context['section'] = 'estimativas'
+        context['estimativas'] = estimativas
+        context['filtros'] = filtros
+        context['total_estimativas'] = len(estimativas)
+        return context
+
+
+class EstimativaCreateView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
+    template_name = 'horas/estimativa_form.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['section'] = 'estimativas'
+        context['estimativa'] = None
+        context['form'] = kwargs.get('form') or EstimativaForm()
+        context['formset'] = kwargs.get('formset') or EstimativaItemCreateFormSet()
+        return context
+
+    def post(self, request, *args, **kwargs):
+        form = EstimativaForm(request.POST)
+        formset = EstimativaItemFormSet(request.POST)
+        if form.is_valid() and formset.is_valid():
+            with transaction.atomic():
+                estimativa = form.save(commit=False)
+                estimativa.user = request.user
+                estimativa.save()
+                formset.instance = estimativa
+                _save_estimativa_formset(formset)
+            messages.success(request, 'Estimativa criada com sucesso.')
+            return redirect('horas:estimativas')
+
+        messages.error(request, 'Corrija os campos destacados antes de salvar a estimativa.')
+        return self.render_to_response(self.get_context_data(form=form, formset=formset))
+
+
+class EstimativaUpdateView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
+    template_name = 'horas/estimativa_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.estimativa = get_object_or_404(_base_estimativas_queryset(request.user), pk=kwargs['pk'])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['section'] = 'estimativas'
+        context['estimativa'] = self.estimativa
+        context['form'] = kwargs.get('form') or EstimativaForm(instance=self.estimativa)
+        context['formset'] = kwargs.get('formset') or EstimativaItemFormSet(instance=self.estimativa)
+        return context
+
+    def post(self, request, *args, **kwargs):
+        form = EstimativaForm(request.POST, instance=self.estimativa)
+        formset = EstimativaItemFormSet(request.POST, instance=self.estimativa)
+        if form.is_valid() and formset.is_valid():
+            with transaction.atomic():
+                form.save()
+                _save_estimativa_formset(formset)
+            messages.success(request, 'Estimativa atualizada com sucesso.')
+            return redirect('horas:estimativas')
+
+        messages.error(request, 'Corrija os campos destacados antes de salvar a estimativa.')
+        return self.render_to_response(self.get_context_data(form=form, formset=formset))
+
+
+@method_decorator(login_required(login_url='login'), name='dispatch')
+class EstimativaDeleteView(View):
+    def post(self, request, pk):
+        estimativa = get_object_or_404(_base_estimativas_queryset(request.user), pk=pk)
+        estimativa.delete()
+        messages.success(request, 'Estimativa removida.')
+        return redirect('horas:estimativas')
 
 
 class RegistroUpdateView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
@@ -385,4 +730,24 @@ def exportar_registros_csv(request):
                 registro.descricao,
             ]
         )
+    return response
+
+
+@login_required(login_url='login')
+def exportar_estimativa_xlsx(request, pk):
+    estimativa = get_object_or_404(_base_estimativas_queryset(request.user), pk=pk)
+    try:
+        arquivo = _build_estimativa_xlsx(estimativa)
+    except (FileNotFoundError, ValueError) as exc:
+        messages.error(request, str(exc))
+        return redirect('horas:estimativas')
+
+    cliente = _sanitize_filename_part(estimativa.cliente)
+    projeto = _sanitize_filename_part(estimativa.projeto)
+    filename = f'EHM DEVS - {cliente} - {projeto}.xlsx'
+    response = HttpResponse(
+        arquivo.getvalue(),
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
     return response

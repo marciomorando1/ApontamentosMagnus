@@ -1,4 +1,5 @@
 import os
+import sys
 
 from pathlib import Path
 import dj_database_url
@@ -89,6 +90,10 @@ DATABASES = {
         conn_health_checks=True,
     )
 }
+
+if DATABASES['default']['ENGINE'] == 'django.db.backends.sqlite3' and 'test' not in sys.argv:
+    DATABASES['default'].setdefault('OPTIONS', {})
+    DATABASES['default']['OPTIONS'].setdefault('init_command', 'PRAGMA journal_mode=OFF;')
 
 
 # Password validation

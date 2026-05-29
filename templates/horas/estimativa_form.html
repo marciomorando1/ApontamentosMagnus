@@ -1,0 +1,307 @@
+{% extends 'base.html' %}
+
+{% block title %}{% if estimativa %}Editar{% else %}Nova{% endif %} estimativa | Apontamento de Horas{% endblock %}
+
+{% block content %}
+  <div class="section-header">
+    <div class="page-title" style="margin-bottom:0;">{% if estimativa %}Editar estimativa{% else %}Nova estimativa{% endif %}</div>
+    <a class="btn btn-ghost btn-sm" href="{% url 'horas:estimativas' %}">Voltar</a>
+  </div>
+
+  <form method="post" class="estimate-form">
+    {% csrf_token %}
+
+    <div class="timer-card">
+      <div class="section-label" style="margin-bottom:14px;">Dados principais</div>
+      <div class="form-row">
+        <div class="field">
+          <label for="{{ form.cliente.id_for_label }}">Cliente</label>
+          {{ form.cliente }}
+          {% for error in form.cliente.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+        </div>
+        <div class="field">
+          <label for="{{ form.solicitante.id_for_label }}">Solicitante</label>
+          {{ form.solicitante }}
+          {% for error in form.solicitante.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label for="{{ form.projeto.id_for_label }}">Projeto</label>
+          {{ form.projeto }}
+          {% for error in form.projeto.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+        </div>
+        <div class="field">
+          <label for="{{ form.sistema.id_for_label }}">Sistema</label>
+          {{ form.sistema }}
+          {% for error in form.sistema.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="timer-card">
+      <div class="section-header" style="margin-bottom:14px;">
+        <div class="section-label">Escopo e horas estimadas</div>
+        <button class="btn btn-ghost btn-sm" type="button" id="add-estimate-item">Adicionar linha</button>
+      </div>
+
+      {{ formset.management_form }}
+      {% if formset.non_form_errors %}
+        {% for error in formset.non_form_errors %}<div class="field-error" style="margin-bottom:10px;">{{ error }}</div>{% endfor %}
+      {% endif %}
+
+      <div class="estimate-items" id="estimate-items">
+        {% for item_form in formset.forms %}
+          <div class="estimate-item" data-estimate-item>
+            {{ item_form.id }}
+            <div class="estimate-item-head">
+              <div class="manual-row-title">Linha de escopo</div>
+              <div class="estimate-delete">
+                {% if item_form.instance.pk %}
+                  {{ item_form.DELETE }}
+                  <label for="{{ item_form.DELETE.id_for_label }}">Remover</label>
+                {% else %}
+                  <button class="btn-del" type="button" data-remove-row>x</button>
+                {% endif %}
+              </div>
+            </div>
+
+            <div class="estimate-item-body">
+              <div class="estimate-line estimate-line-main">
+                <div class="field order-field">
+                  <label for="{{ item_form.ordem.id_for_label }}">Nº</label>
+                  {{ item_form.ordem }}
+                  {% for error in item_form.ordem.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+                </div>
+                <div class="field">
+                  <label for="{{ item_form.modulo_processo.id_for_label }}">Modulo / Processo</label>
+                  {{ item_form.modulo_processo }}
+                  {% for error in item_form.modulo_processo.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+                </div>
+                <div class="field">
+                  <label for="{{ item_form.recurso.id_for_label }}">Recurso</label>
+                  {{ item_form.recurso }}
+                  {% for error in item_form.recurso.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+                </div>
+              </div>
+
+              <div class="estimate-line">
+                <div class="field scope-field">
+                  <label for="{{ item_form.escopo.id_for_label }}">Escopo</label>
+                  {{ item_form.escopo }}
+                  {% for error in item_form.escopo.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+                </div>
+              </div>
+
+              <div class="estimate-line estimate-line-hours">
+                <div class="field">
+                  <label for="{{ item_form.horas_analise.id_for_label }}">Horas analise</label>
+                  {{ item_form.horas_analise }}
+                  {% for error in item_form.horas_analise.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+                </div>
+                <div class="field">
+                  <label for="{{ item_form.horas_atividade.id_for_label }}">Horas atividade</label>
+                  {{ item_form.horas_atividade }}
+                  {% for error in item_form.horas_atividade.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+                </div>
+                <div class="field">
+                  <label for="{{ item_form.horas_gp.id_for_label }}">Horas GP</label>
+                  {{ item_form.horas_gp }}
+                  {% for error in item_form.horas_gp.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+                </div>
+                <div class="field">
+                  <label for="{{ item_form.horas_estimadas.id_for_label }}">Horas estimadas</label>
+                  {{ item_form.horas_estimadas }}
+                  {% for error in item_form.horas_estimadas.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+                </div>
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <template id="empty-estimate-item">
+      <div class="estimate-item" data-estimate-item>
+        <div class="estimate-item-head">
+          <div class="manual-row-title">Linha de escopo</div>
+          <button class="btn-del" type="button" data-remove-row>x</button>
+        </div>
+        <div class="estimate-item-body">
+          <div class="estimate-line estimate-line-main">
+            <div class="field order-field">
+              <label for="{{ formset.empty_form.ordem.id_for_label }}">Nº</label>
+              {{ formset.empty_form.ordem }}
+            </div>
+            <div class="field">
+              <label for="{{ formset.empty_form.modulo_processo.id_for_label }}">Modulo / Processo</label>
+              {{ formset.empty_form.modulo_processo }}
+            </div>
+            <div class="field">
+              <label for="{{ formset.empty_form.recurso.id_for_label }}">Recurso</label>
+              {{ formset.empty_form.recurso }}
+            </div>
+          </div>
+
+          <div class="estimate-line">
+            <div class="field scope-field">
+              <label for="{{ formset.empty_form.escopo.id_for_label }}">Escopo</label>
+              {{ formset.empty_form.escopo }}
+            </div>
+          </div>
+
+          <div class="estimate-line estimate-line-hours">
+            <div class="field">
+              <label for="{{ formset.empty_form.horas_analise.id_for_label }}">Horas analise</label>
+              {{ formset.empty_form.horas_analise }}
+            </div>
+            <div class="field">
+              <label for="{{ formset.empty_form.horas_atividade.id_for_label }}">Horas atividade</label>
+              {{ formset.empty_form.horas_atividade }}
+            </div>
+            <div class="field">
+              <label for="{{ formset.empty_form.horas_gp.id_for_label }}">Horas GP</label>
+              {{ formset.empty_form.horas_gp }}
+            </div>
+            <div class="field">
+              <label for="{{ formset.empty_form.horas_estimadas.id_for_label }}">Horas estimadas</label>
+              {{ formset.empty_form.horas_estimadas }}
+            </div>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <div class="btn-row">
+      <button class="btn btn-primary" type="submit">Salvar estimativa</button>
+      <a class="btn btn-ghost" href="{% url 'horas:estimativas' %}">Cancelar</a>
+    </div>
+  </form>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const itemsContainer = document.getElementById('estimate-items');
+    const totalFormsInput = document.getElementById('id_itens-TOTAL_FORMS');
+    const itemTemplate = document.getElementById('empty-estimate-item');
+    const addButton = document.getElementById('add-estimate-item');
+    const estimateForm = document.querySelector('.estimate-form');
+
+    function hasRowContent(row) {
+      return Array.from(row.querySelectorAll('input, textarea, select')).some((field) => {
+        if (field.type === 'hidden' || field.name.endsWith('-ordem') || field.name.endsWith('-horas_estimadas')) {
+          return false;
+        }
+        if (field.type === 'checkbox') {
+          return field.checked;
+        }
+        return Boolean((field.value || '').trim());
+      });
+    }
+
+    function reindexNewRows() {
+      const rows = Array.from(itemsContainer.querySelectorAll('[data-estimate-item]'));
+      rows.forEach((row, index) => {
+        row.querySelectorAll('input, textarea, select, label').forEach((element) => {
+          ['name', 'id', 'for'].forEach((attr) => {
+            const value = element.getAttribute(attr);
+            if (!value) return;
+            element.setAttribute(attr, value.replace(/itens-\d+-/g, `itens-${index}-`));
+          });
+        });
+      });
+      totalFormsInput.value = rows.length;
+    }
+
+    function updateOrderDefaults() {
+      const visibleRows = Array.from(itemsContainer.querySelectorAll('[data-estimate-item]'))
+        .filter((row) => {
+          const deleteInput = row.querySelector('input[type="checkbox"][name$="-DELETE"]');
+          return !deleteInput || !deleteInput.checked;
+        });
+
+      visibleRows.forEach((row, index) => {
+        const ordem = row.querySelector('input[name$="-ordem"]');
+        if (ordem && !ordem.value && hasRowContent(row)) {
+          ordem.value = index + 1;
+        }
+      });
+    }
+
+    function parseDuration(value) {
+      const digits = (value || '').replace(/\D/g, '');
+      if (!digits) return 0;
+      const minutes = Number(digits.slice(-2) || 0);
+      const hours = Number(digits.slice(0, -2) || 0);
+      return (hours * 60) + minutes;
+    }
+
+    function formatDuration(totalMinutes) {
+      const safeMinutes = Math.max(0, totalMinutes || 0);
+      const hours = Math.floor(safeMinutes / 60);
+      const minutes = safeMinutes % 60;
+      return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+    }
+
+    function normalizeDurationInput(input) {
+      input.value = formatDuration(parseDuration(input.value));
+    }
+
+    function updateEstimatedHours(row) {
+      const analysis = row.querySelector('input[name$="-horas_analise"]');
+      const activity = row.querySelector('input[name$="-horas_atividade"]');
+      const estimated = row.querySelector('input[name$="-horas_estimadas"]');
+      if (!estimated) return;
+      estimated.value = formatDuration(parseDuration(analysis?.value) + parseDuration(activity?.value));
+    }
+
+    function updateAllEstimatedHours() {
+      itemsContainer.querySelectorAll('[data-estimate-item]').forEach(updateEstimatedHours);
+    }
+
+    addButton.addEventListener('click', () => {
+      const index = Number(totalFormsInput.value);
+      const html = itemTemplate.innerHTML.replaceAll('__prefix__', index);
+      itemsContainer.insertAdjacentHTML('beforeend', html);
+      totalFormsInput.value = index + 1;
+      updateOrderDefaults();
+      updateAllEstimatedHours();
+    });
+
+    itemsContainer.addEventListener('click', (event) => {
+      const removeButton = event.target.closest('[data-remove-row]');
+      if (!removeButton) return;
+      const row = removeButton.closest('[data-estimate-item]');
+      row.remove();
+      reindexNewRows();
+      updateOrderDefaults();
+    });
+
+    itemsContainer.addEventListener('change', (event) => {
+      if (event.target.matches('input[type="checkbox"][name$="-DELETE"]')) {
+        event.target.closest('[data-estimate-item]').classList.toggle('is-marked-delete', event.target.checked);
+      }
+    });
+
+    itemsContainer.addEventListener('blur', (event) => {
+      if (!event.target.matches('.duration-input')) return;
+      normalizeDurationInput(event.target);
+      updateEstimatedHours(event.target.closest('[data-estimate-item]'));
+    }, true);
+
+    itemsContainer.addEventListener('input', (event) => {
+      if (!event.target.matches('.duration-input')) return;
+      updateEstimatedHours(event.target.closest('[data-estimate-item]'));
+    });
+
+    estimateForm.addEventListener('submit', () => {
+      reindexNewRows();
+      updateOrderDefaults();
+      updateAllEstimatedHours();
+    });
+
+    reindexNewRows();
+    updateOrderDefaults();
+    updateAllEstimatedHours();
+  </script>
+{% endblock %}

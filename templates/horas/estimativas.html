@@ -1,0 +1,82 @@
+{% extends 'base.html' %}
+
+{% block title %}Estimativas | Apontamento de Horas{% endblock %}
+
+{% block content %}
+  <div class="section-header">
+    <div>
+      <div class="page-title" style="margin-bottom:6px;">Estimativas</div>
+      <div class="empty-inline">{{ total_estimativas }} estimativa{{ total_estimativas|pluralize }} listada{{ total_estimativas|pluralize }}</div>
+    </div>
+    <a class="btn btn-primary btn-sm" href="{% url 'horas:estimativa_nova' %}">Nova estimativa</a>
+  </div>
+
+  <form method="get" class="filter-row">
+    <div class="field">
+      <label for="fil-de">De</label>
+      <input type="date" id="fil-de" name="de" value="{{ filtros.de }}">
+    </div>
+    <div class="field">
+      <label for="fil-ate">Ate</label>
+      <input type="date" id="fil-ate" name="ate" value="{{ filtros.ate }}">
+    </div>
+    <div class="field">
+      <label for="fil-cliente">Cliente</label>
+      <input type="text" id="fil-cliente" name="cliente" value="{{ filtros.cliente }}" placeholder="Filtrar por cliente">
+    </div>
+    <button class="btn btn-ghost btn-sm" type="submit">Filtrar</button>
+    <a class="btn btn-ghost btn-sm" href="{% url 'horas:estimativas' %}">Limpar</a>
+  </form>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Cliente</th>
+          <th>Solicitante</th>
+          <th>Projeto</th>
+          <th>Sistema</th>
+          <th>Total horas</th>
+          <th>Atualizada em</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for estimativa in estimativas %}
+          <tr>
+            <td>{{ estimativa.cliente }}</td>
+            <td>{{ estimativa.solicitante }}</td>
+            <td class="desc">{{ estimativa.projeto }}</td>
+            <td><span class="badge-code">{{ estimativa.sistema }}</span></td>
+            <td class="mono accent-text">{{ estimativa.total_horas_estimadas_formatado }}</td>
+            <td class="mono">{{ estimativa.atualizado_em|date:'d/m/Y H:i' }}</td>
+            <td class="actions-cell">
+              <a class="btn-inline" href="{% url 'horas:estimativa_editar' estimativa.pk %}">Editar</a>
+              <a class="btn-inline" href="{% url 'horas:estimativa_exportar' estimativa.pk %}">Exportar</a>
+              <form method="post" action="{% url 'horas:estimativa_remover' estimativa.pk %}">
+                {% csrf_token %}
+                <button class="btn-del" type="submit">×</button>
+              </form>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="7">
+              <div class="empty-state">
+                <div class="empty-icon">E</div>
+                Nenhuma estimativa encontrada.
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="stats-grid" style="margin-top:16px;">
+    <div class="stat-card">
+      <div class="stat-value">{{ total_estimativas }}</div>
+      <div class="stat-label">estimativa{{ total_estimativas|pluralize }} listada{{ total_estimativas|pluralize }}</div>
+    </div>
+  </div>
+{% endblock %}

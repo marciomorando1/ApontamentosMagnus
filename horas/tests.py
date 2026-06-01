@@ -9,7 +9,7 @@ from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.urls import reverse
 
-from .models import Estimativa, Fase, Orcamento, Registro
+from .models import AgendaAtividade, Estimativa, Fase, Orcamento, Registro, UserProfile
 
 
 User = get_user_model()
@@ -759,4 +759,208 @@ class FasesViewTests(AuthenticatedTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertFalse(Fase.objects.filter(pk=fase.pk).exists())
+
+
+class UserProfileTests(TestCase):
+    def test_cria_profile_para_novo_usuario(self):
+        user = User.objects.create_user(username='novo-perfil', password='senha-segura')
+
+        self.assertTrue(UserProfile.objects.filter(user=user).exists())
+        self.assertFalse(user.profile.is_gerente_projetos)
+
+
+class AgendaAtividadeModelTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='agenda-model', password='senha-segura')
+        self.gp = User.objects.create_user(username='agenda-gp', password='senha-segura')
+        self.gp.profile.is_gerente_projetos = True
+        self.gp.profile.save(update_fields=['is_gerente_projetos'])
+        self.orcamento = Orcamento.objects.create(codigo='9001', nome='Agenda Orcamento')
+
+    def test_rejeita_data_final_menor_que_inicial(self):
+        atividade = AgendaAtividade(
+            user=self.user,
+            criado_por=self.gp,
+            cliente='Cliente',
+            numero_chamado='123',
+            orcamento=self.orcamento,
+            produto='Produto',
+            titulo='Atividade',
+            descricao='Descricao',
+            data_inicio=date(2026, 6, 10),
+            data_fim=date(2026, 6, 9),
+        )
+
+        with self.assertRaises(ValidationError):
+            atividade.full_clean()
+
+
+class AgendaViewTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='agenda-user', password='senha-segura')
+        self.other_user = User.objects.create_user(username='agenda-other', password='senha-segura')
+        self.gp = User.objects.create_user(username='agenda-gp', password='senha-segura')
+        self.gp.profile.is_gerente_projetos = True
+        self.gp.profile.save(update_fields=['is_gerente_projetos'])
+        self.orcamento = Orcamento.objects.create(codigo='9002', nome='Agenda Orcamento')
+
+    def criar_atividade(self, *, user, criado_por, titulo='Atividade', data_inicio=None, data_fim=None):
+        return AgendaAtividade.objects.create(
+            user=user,
+            criado_por=criado_por,
+            cliente='Cliente Agenda',
+            numero_chamado='CH-1',
+            orcamento=self.orcamento,
+            produto='ERP',
+            titulo=titulo,
+            descricao='Descricao da atividade',
+            data_inicio=data_inicio or date(2026, 6, 10),
+            data_fim=data_fim or date(2026, 6, 12),
+        )
+
+    def test_usuario_comum_ve_apenas_propria_agenda(self):
+        self.criar_atividade(user=self.user, criado_por=self.user, titulo='Minha atividade')
+        self.criar_atividade(user=self.other_user, criado_por=self.other_user, titulo='Atividade de outro')
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('horas:agenda'), {'mes': '2026-06'})
+
+        self.assertEqual(response.status_code, 200)
+        atividades = list(response.context['agenda_atividades'])
+        self.assertEqual(len(atividades), 1)
+        self.assertEqual(atividades[0].titulo, 'Minha atividade')
+
+    def test_gerente_sem_filtro_ve_instrucao_e_lista_vazia(self):
+        self.client.force_login(self.gp)
+
+        response = self.client.get(reverse('horas:agenda'), {'mes': '2026-06'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['show_agenda_empty_filter'])
+        self.assertContains(response, 'Selecione um usuário')
+
+    def test_gerente_filtra_e_ve_agenda_de_outro_usuario(self):
+        self.criar_atividade(user=self.user, criado_por=self.gp, titulo='Planejamento GP')
+        self.client.force_login(self.gp)
+
+        response = self.client.get(reverse('horas:agenda'), {'mes': '2026-06', 'usuario': self.user.pk})
+
+        self.assertEqual(response.status_code, 200)
+        atividades = list(response.context['agenda_atividades'])
+        self.assertEqual(len(atividades), 1)
+        self.assertEqual(atividades[0].titulo, 'Planejamento GP')
+
+    def test_gerente_cria_atividade_para_outro_usuario(self):
+        self.client.force_login(self.gp)
+
+        response = self.client.post(
+            reverse('horas:agenda_nova'),
+            data={
+                'user': self.user.pk,
+                'cliente': 'Cliente Agenda',
+                'numero_chamado': 'CH-100',
+                'orcamento': self.orcamento.pk,
+                'produto': 'ERP',
+                'titulo': 'Atividade delegada',
+                'descricao': 'Descricao',
+                'data_inicio': '2026-06-10',
+                'data_fim': '2026-06-12',
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        atividade = AgendaAtividade.objects.get(titulo='Atividade delegada')
+        self.assertEqual(atividade.user, self.user)
+        self.assertEqual(atividade.criado_por, self.gp)
+
+    def test_usuario_comum_cria_atividade_na_propria_agenda(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse('horas:agenda_nova'),
+            data={
+                'cliente': 'Cliente Agenda',
+                'numero_chamado': 'CH-200',
+                'orcamento': self.orcamento.pk,
+                'produto': 'ERP',
+                'titulo': 'Minha atividade',
+                'descricao': 'Descricao',
+                'data_inicio': '2026-06-10',
+                'data_fim': '2026-06-11',
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        atividade = AgendaAtividade.objects.get(titulo='Minha atividade')
+        self.assertEqual(atividade.user, self.user)
+        self.assertEqual(atividade.criado_por, self.user)
+
+    def test_usuario_comum_nao_edita_atividade_criada_por_gerente(self):
+        atividade = self.criar_atividade(user=self.user, criado_por=self.gp, titulo='Delegada')
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('horas:agenda_editar', args=[atividade.pk]))
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_gerente_edita_atividade_criada_para_terceiro(self):
+        atividade = self.criar_atividade(user=self.user, criado_por=self.gp, titulo='Delegada')
+        self.client.force_login(self.gp)
+
+        response = self.client.post(
+            reverse('horas:agenda_editar', args=[atividade.pk]),
+            data={
+                'user': self.user.pk,
+                'cliente': atividade.cliente,
+                'numero_chamado': atividade.numero_chamado,
+                'orcamento': atividade.orcamento.pk,
+                'produto': atividade.produto,
+                'titulo': 'Delegada ajustada',
+                'descricao': atividade.descricao,
+                'data_inicio': atividade.data_inicio.isoformat(),
+                'data_fim': atividade.data_fim.isoformat(),
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        atividade.refresh_from_db()
+        self.assertEqual(atividade.titulo, 'Delegada ajustada')
+
+    def test_calendario_mostra_atividade_em_todos_os_dias_do_intervalo(self):
+        self.criar_atividade(
+            user=self.user,
+            criado_por=self.user,
+            titulo='Faixa completa',
+            data_inicio=date(2026, 6, 10),
+            data_fim=date(2026, 6, 12),
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('horas:agenda'), {'mes': '2026-06'})
+
+        self.assertEqual(response.status_code, 200)
+        weeks = response.context['agenda_weeks']
+        matches = []
+        for week in weeks:
+            for day in week:
+                if day['date'] in {date(2026, 6, 10), date(2026, 6, 11), date(2026, 6, 12)}:
+                    matches.append(len(day['atividades']))
+        self.assertEqual(matches, [1, 1, 1])
+
+    def test_filtro_de_mes_mantem_usuario_na_navegacao(self):
+        self.client.force_login(self.gp)
+
+        response = self.client.get(reverse('horas:agenda'), {'mes': '2026-06', 'usuario': self.user.pk})
+
+        self.assertContains(response, f'mes=2026-05&usuario={self.user.pk}')
+        self.assertContains(response, f'mes=2026-07&usuario={self.user.pk}')
+
+    def test_formulario_exibe_campo_usuario_apenas_para_gerente(self):
+        self.client.force_login(self.gp)
+        response_gp = self.client.get(reverse('horas:agenda_nova'))
+        self.assertContains(response_gp, 'name="user"')
+
+        self.client.force_login(self.user)
+        response_user = self.client.get(reverse('horas:agenda_nova'))
+        self.assertNotContains(response_user, '<label for="id_user">Usuário</label>', html=False)
 

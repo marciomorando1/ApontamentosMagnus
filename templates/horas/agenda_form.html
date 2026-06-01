@@ -1,0 +1,97 @@
+{% extends 'base.html' %}
+
+{% block title %}{% if atividade %}Editar atividade{% else %}Nova atividade{% endif %} | Agenda{% endblock %}
+
+{% block content %}
+  <div class="section-header">
+    <div>
+      <h1 class="page-title">{% if atividade %}Editar atividade{% else %}Nova atividade{% endif %}</h1>
+      <div class="section-label">Agenda</div>
+    </div>
+    <a class="btn btn-ghost" href="{{ agenda_back_url }}">Voltar</a>
+  </div>
+
+  <form method="post" class="timer-card agenda-form-card">
+    {% csrf_token %}
+
+    {% if form.user.is_hidden %}
+      {{ form.user }}
+    {% endif %}
+
+    <div class="form-row">
+      {% if not form.user.is_hidden %}
+        <div class="field">
+          <label for="{{ form.user.id_for_label }}">Usuário</label>
+          {{ form.user }}
+          {% for error in form.user.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+        </div>
+      {% endif %}
+      <div class="field">
+        <label for="{{ form.cliente.id_for_label }}">Cliente</label>
+        {{ form.cliente }}
+        {% for error in form.cliente.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
+        <label for="{{ form.numero_chamado.id_for_label }}">Número do Chamado</label>
+        {{ form.numero_chamado }}
+        {% for error in form.numero_chamado.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+    </div>
+
+    <div class="form-row triple">
+      <div class="field">
+        <label for="{{ form.orcamento.id_for_label }}">Número do Orçamento</label>
+        {{ form.orcamento }}
+        {% for error in form.orcamento.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
+        <label for="{{ form.produto.id_for_label }}">Produto</label>
+        {{ form.produto }}
+        {% for error in form.produto.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
+        <label for="{{ form.titulo.id_for_label }}">Título da Atividade</label>
+        {{ form.titulo }}
+        {% for error in form.titulo.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="field">
+        <label for="{{ form.data_inicio.id_for_label }}">Data Início</label>
+        {{ form.data_inicio }}
+        {% for error in form.data_inicio.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
+        <label for="{{ form.data_fim.id_for_label }}">Data Fim</label>
+        {{ form.data_fim }}
+        {% for error in form.data_fim.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+    </div>
+
+    <div class="form-row single">
+      <div class="field">
+        <label for="{{ form.descricao.id_for_label }}">Descrição</label>
+        {{ form.descricao }}
+        {% for error in form.descricao.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+    </div>
+
+    {% if form.non_field_errors %}
+      {% for error in form.non_field_errors %}
+        <div class="field-error">{{ error }}</div>
+      {% endfor %}
+    {% endif %}
+
+    <div class="btn-row">
+      <button class="btn btn-primary" type="submit">Salvar atividade</button>
+      <a class="btn btn-ghost" href="{{ agenda_back_url }}">Cancelar</a>
+      {% if atividade %}
+        <form method="post" action="{% url 'horas:agenda_remover' atividade.pk %}">
+          {% csrf_token %}
+          <button class="btn btn-danger" type="submit">Remover</button>
+        </form>
+      {% endif %}
+    </div>
+  </form>
+{% endblock %}

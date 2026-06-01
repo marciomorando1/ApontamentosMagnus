@@ -1,0 +1,126 @@
+{% extends 'base.html' %}
+
+{% block title %}Agenda | Apontamento de Horas{% endblock %}
+
+{% block content %}
+  <style>
+    .agenda-shell { display: flex; flex-direction: column; gap: 18px; }
+    .agenda-topbar { display: flex; justify-content: space-between; align-items: flex-end; gap: 18px; flex-wrap: wrap; }
+    .agenda-topbar-left, .agenda-topbar-right, .agenda-filter-form { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+    .agenda-month-block { display: flex; flex-direction: column; gap: 4px; }
+    .agenda-month-title { font-size: 30px; font-weight: 600; line-height: 1; }
+    .agenda-selected-user { padding: 9px 12px; border-radius: 999px; border: 1px solid var(--border); background: rgba(0,169,145,0.08); color: var(--accent); font-size: 12px; font-weight: 500; }
+    .agenda-filter-form .field { min-width: 220px; margin-bottom: 0; }
+    .agenda-filter-form .field label { min-height: 14px; display: block; }
+    .agenda-calendar-frame { border: 1px solid var(--border); border-radius: 16px; overflow: hidden; background: var(--surface); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.01); }
+    .agenda-weekdays, .agenda-grid { display: grid !important; grid-template-columns: repeat(7, minmax(0, 1fr)) !important; }
+    .agenda-weekdays div { padding: 12px 10px; background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01)); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+    .agenda-weekdays div:last-child { border-right: none; }
+    .agenda-day { min-height: 180px; padding: 10px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); background: rgba(26,26,26,0.92); display: flex; flex-direction: column; gap: 10px; }
+    .agenda-day:nth-child(7n) { border-right: none; }
+    .agenda-day.is-outside { background: rgba(20,20,20,0.96); }
+    .agenda-day.is-today { background: linear-gradient(180deg, rgba(0,169,145,0.08), rgba(26,26,26,0.94)); }
+    .agenda-day-head { display: flex; align-items: center; gap: 8px; }
+    .agenda-day-number { width: 30px; height: 30px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 13px; color: var(--text); }
+    .agenda-day.is-today .agenda-day-number { background: var(--accent); color: #0f0f0f; font-weight: 700; }
+    .agenda-day-month { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+    .agenda-day-body { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+    .agenda-event { display: block; border-radius: 8px; padding: 8px 10px; background: linear-gradient(180deg, rgba(106,166,184,0.30), rgba(106,166,184,0.18)); border: 1px solid rgba(106,166,184,0.22); transition: transform 0.12s ease, border-color 0.12s ease, background 0.12s ease; }
+    .agenda-event:hover { transform: translateY(-1px); border-color: rgba(0,169,145,0.42); background: linear-gradient(180deg, rgba(0,169,145,0.24), rgba(0,169,145,0.14)); }
+    .agenda-event-title { font-size: 12px; font-weight: 600; color: var(--text); line-height: 1.25; }
+    .agenda-event-subtitle { margin-top: 2px; font-size: 11px; color: #d5e4e8; }
+    .agenda-event-meta { margin-top: 5px; display: flex; gap: 8px; flex-wrap: wrap; font-size: 10px; color: rgba(240,240,240,0.72); text-transform: uppercase; letter-spacing: 0.05em; }
+    .agenda-empty-slot { padding-top: 4px; font-size: 11px; color: var(--muted); }
+    .agenda-empty-state { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; }
+    @media (max-width: 700px) {
+      .agenda-topbar, .agenda-topbar-left, .agenda-topbar-right, .agenda-filter-form { align-items: stretch; }
+      .agenda-weekdays, .agenda-grid { grid-template-columns: 1fr !important; }
+      .agenda-day { min-height: 0; }
+    }
+  </style>
+  <section class="agenda-shell">
+    <div class="agenda-topbar">
+      <div class="agenda-topbar-left">
+        <a class="btn btn-ghost btn-sm" href="{% url 'horas:agenda' %}?mes={{ agenda_filters.mes_anterior }}{% if selected_user %}&usuario={{ selected_user.pk }}{% endif %}">‹</a>
+        <a class="btn btn-ghost btn-sm" href="{% url 'horas:agenda' %}?mes={{ agenda_filters.mes_proximo }}{% if selected_user %}&usuario={{ selected_user.pk }}{% endif %}">›</a>
+        <div class="agenda-month-block">
+          <div class="section-label">Agenda</div>
+          <h1 class="agenda-month-title">{{ agenda_filters.mes_label }}</h1>
+        </div>
+        {% if selected_user %}
+          <div class="agenda-selected-user">Usuário: {{ selected_user.username }}</div>
+        {% elif not is_gp %}
+          <div class="agenda-selected-user">Usuário: {{ user.username }}</div>
+        {% endif %}
+      </div>
+
+      <div class="agenda-topbar-right">
+        {% if is_gp %}
+          <form method="get" class="agenda-filter-form">
+            <input type="hidden" name="mes" value="{{ agenda_filters.mes }}">
+            <div class="field">
+              <label for="id_usuario">Usuário</label>
+              <select name="usuario" id="id_usuario">
+                <option value="">— selecione —</option>
+                {% for agenda_user in agenda_users %}
+                  <option value="{{ agenda_user.pk }}" {% if selected_user and agenda_user.pk == selected_user.pk %}selected{% endif %}>{{ agenda_user.username }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <button class="btn btn-primary" type="submit">Filtrar</button>
+          </form>
+        {% endif %}
+
+        <a class="btn btn-primary" href="{% url 'horas:agenda_nova' %}{% if agenda_filters.mes %}?mes={{ agenda_filters.mes }}{% if selected_user %}&usuario={{ selected_user.pk }}{% endif %}{% endif %}">Nova atividade</a>
+      </div>
+    </div>
+
+    {% if show_agenda_empty_filter %}
+      <div class="empty-state agenda-empty-state">
+        <div class="empty-icon">A</div>
+        <div>Selecione um usuário para visualizar e gerenciar a agenda.</div>
+      </div>
+    {% else %}
+      <div class="agenda-calendar-frame">
+        <div class="agenda-weekdays">
+          <div>Domingo</div>
+          <div>Segunda-feira</div>
+          <div>Terça-feira</div>
+          <div>Quarta-feira</div>
+          <div>Quinta-feira</div>
+          <div>Sexta-feira</div>
+          <div>Sábado</div>
+        </div>
+
+        <div class="agenda-grid">
+          {% for week in agenda_weeks %}
+            {% for day in week %}
+              <section class="agenda-day{% if not day.in_month %} is-outside{% endif %}{% if day.is_today %} is-today{% endif %}">
+                <header class="agenda-day-head">
+                  <div class="agenda-day-number">{{ day.date|date:'d' }}</div>
+                  {% if not day.in_month %}
+                    <div class="agenda-day-month">{{ day.date|date:'M' }}</div>
+                  {% endif %}
+                </header>
+                <div class="agenda-day-body">
+                  {% for atividade in day.atividades %}
+                    <a class="agenda-event{% if atividade.can_manage %} is-editable{% endif %}" href="{% url 'horas:agenda_editar' atividade.pk %}">
+                      <div class="agenda-event-title">{{ atividade.titulo }}</div>
+                      <div class="agenda-event-subtitle">{{ atividade.cliente }}</div>
+                      <div class="agenda-event-meta">
+                        {% if atividade.numero_chamado %}<span>Chamado {{ atividade.numero_chamado }}</span>{% endif %}
+                        <span>{{ atividade.orcamento.codigo }}</span>
+                      </div>
+                    </a>
+                  {% empty %}
+                    <div class="agenda-empty-slot">Sem atividades</div>
+                  {% endfor %}
+                </div>
+              </section>
+            {% endfor %}
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

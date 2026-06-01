@@ -6,6 +6,10 @@ app_name = 'horas'
 
 urlpatterns = [
     path('', views.DashboardView.as_view(), name='dashboard'),
+    path('agenda/', views.AgendaView.as_view(), name='agenda'),
+    path('agenda/nova/', views.AgendaCreateView.as_view(), name='agenda_nova'),
+    path('agenda/<int:pk>/editar/', views.AgendaUpdateView.as_view(), name='agenda_editar'),
+    path('agenda/<int:pk>/remover/', views.AgendaDeleteView.as_view(), name='agenda_remover'),
     path('timer/', views.TimerView.as_view(), name='timer'),
     path('registros/', views.RegistrosView.as_view(), name='registros'),
     path('registros/exportar/', views.exportar_registros_csv, name='exportar_csv'),

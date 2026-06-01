@@ -38,6 +38,19 @@ class Orcamento(models.Model):
         return f'{self.codigo} - {self.nome}' if self.nome else self.codigo
 
 
+class UserProfile(models.Model):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='profile',
+    )
+    is_gerente_projetos = models.BooleanField(default=False)
+
+    def __str__(self):
+        role = 'GP' if self.is_gerente_projetos else 'Usuario'
+        return f'{self.user} - {role}'
+
+
 class Estimativa(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -112,6 +125,46 @@ class EstimativaItem(models.Model):
 
     def __str__(self):
         return f'{self.ordem} - {self.estimativa}'
+
+
+class AgendaAtividade(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='agenda_atividades',
+    )
+    criado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='agenda_atividades_criadas',
+    )
+    cliente = models.CharField(max_length=200)
+    numero_chamado = models.CharField(max_length=100, blank=True)
+    orcamento = models.ForeignKey(
+        Orcamento,
+        on_delete=models.PROTECT,
+        related_name='agenda_atividades',
+    )
+    produto = models.CharField(max_length=200, blank=True)
+    titulo = models.CharField(max_length=200)
+    descricao = models.TextField(blank=True)
+    data_inicio = models.DateField()
+    data_fim = models.DateField()
+    criado_em = models.DateTimeField(auto_now_add=True)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['data_inicio', 'titulo', 'pk']
+
+    def clean(self):
+        errors = {}
+        if self.data_inicio and self.data_fim and self.data_fim < self.data_inicio:
+            errors['data_fim'] = 'A data final deve ser maior ou igual a data inicial.'
+        if errors:
+            raise ValidationError(errors)
+
+    def __str__(self):
+        return f'{self.titulo} - {self.user}'
 
 
 class Registro(models.Model):

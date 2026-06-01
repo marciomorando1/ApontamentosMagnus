@@ -2,10 +2,22 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from django import forms
+from django.contrib.auth import get_user_model
 from django.forms import inlineformset_factory
 from django.db.models import Q
 
-from .models import Estimativa, EstimativaItem, Fase, Orcamento, Registro, format_decimal_hours
+from .models import (
+    AgendaAtividade,
+    Estimativa,
+    EstimativaItem,
+    Fase,
+    Orcamento,
+    Registro,
+    format_decimal_hours,
+)
+
+
+User = get_user_model()
 
 
 MODULO_PROCESSO_CHOICES = [
@@ -257,6 +269,68 @@ class EstimativaItemForm(forms.ModelForm):
         horas_atividade = cleaned_data.get('horas_atividade') or Decimal('0')
         cleaned_data['horas_estimadas'] = horas_analise + horas_atividade
         return cleaned_data
+
+
+class AgendaAtividadeForm(forms.ModelForm):
+    class Meta:
+        model = AgendaAtividade
+        fields = [
+            'user',
+            'cliente',
+            'numero_chamado',
+            'orcamento',
+            'produto',
+            'titulo',
+            'descricao',
+            'data_inicio',
+            'data_fim',
+        ]
+        widgets = {
+            'data_inicio': DateInput(),
+            'data_fim': DateInput(),
+            'descricao': forms.Textarea(attrs={'rows': 4}),
+        }
+
+    def __init__(self, *args, current_user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.current_user = current_user
+        queryset = Orcamento.objects.filter(ativo=True)
+        if self.instance.pk and self.instance.orcamento_id:
+            queryset = Orcamento.objects.filter(Q(ativo=True) | Q(pk=self.instance.orcamento_id))
+        self.fields['orcamento'].queryset = queryset.order_by('codigo')
+        self.fields['orcamento'].empty_label = '— selecione —'
+
+        is_gp = bool(
+            current_user
+            and hasattr(current_user, 'profile')
+            and current_user.profile.is_gerente_projetos
+        )
+        self.is_gp = is_gp
+        self.fields['user'].queryset = User.objects.order_by('username')
+        self.fields['user'].label = 'Usuário'
+
+        if is_gp:
+            self.fields['user'].required = True
+        else:
+            self.fields['user'].queryset = User.objects.filter(pk=getattr(current_user, 'pk', None))
+            self.fields['user'].initial = current_user
+            self.fields['user'].widget = forms.HiddenInput()
+            self.fields['user'].required = False
+
+    def clean_cliente(self):
+        return self.cleaned_data['cliente'].strip()
+
+    def clean_numero_chamado(self):
+        return self.cleaned_data['numero_chamado'].strip()
+
+    def clean_produto(self):
+        return self.cleaned_data['produto'].strip()
+
+    def clean_titulo(self):
+        return self.cleaned_data['titulo'].strip()
+
+    def clean_descricao(self):
+        return self.cleaned_data['descricao'].strip()
 
 
 EstimativaItemFormSet = inlineformset_factory(

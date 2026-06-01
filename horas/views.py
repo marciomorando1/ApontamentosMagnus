@@ -1,9 +1,10 @@
 import csv
+import calendar
 import re
 import unicodedata
 import zipfile
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
@@ -11,11 +12,12 @@ from xml.etree import ElementTree as ET
 
 from django.conf import settings
 from django.contrib import messages
+from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
-from django.db.models import ProtectedError
-from django.http import HttpResponse
+from django.db.models import ProtectedError, Q
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 from django.utils.decorators import method_decorator
@@ -23,6 +25,7 @@ from django.views import View
 from django.views.generic import RedirectView, TemplateView
 
 from .forms import (
+    AgendaAtividadeForm,
     EstimativaForm,
     EstimativaItemCreateFormSet,
     EstimativaItemFormSet,
@@ -30,13 +33,29 @@ from .forms import (
     OrcamentoForm,
     RegistroForm,
 )
-from .models import Estimativa, Fase, Orcamento, Registro
+from .models import AgendaAtividade, Estimativa, Fase, Orcamento, Registro, UserProfile
 
 
 XLSX_NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
 REL_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
 ET.register_namespace('', XLSX_NS)
 ET.register_namespace('r', REL_NS)
+User = get_user_model()
+MONTH_LABELS = [
+    '',
+    'Janeiro',
+    'Fevereiro',
+    'Março',
+    'Abril',
+    'Maio',
+    'Junho',
+    'Julho',
+    'Agosto',
+    'Setembro',
+    'Outubro',
+    'Novembro',
+    'Dezembro',
+]
 
 
 def _build_timer_rows_from_post(request):
@@ -72,8 +91,94 @@ def _parse_date(value):
         return None
 
 
+def _parse_month(value):
+    if not value:
+        return date.today().replace(day=1)
+    try:
+        return datetime.strptime(value, '%Y-%m').date().replace(day=1)
+    except ValueError:
+        return date.today().replace(day=1)
+
+
 def _base_registros_queryset(user):
     return Registro.objects.select_related('orcamento', 'fase').filter(user=user)
+
+
+def _user_is_gp(user):
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+    return profile.is_gerente_projetos
+
+
+def _base_agenda_queryset():
+    return AgendaAtividade.objects.select_related('user', 'criado_por', 'orcamento')
+
+
+def _agenda_manage_queryset(user):
+    if _user_is_gp(user):
+        return _base_agenda_queryset().filter(Q(user=user) | Q(criado_por=user))
+    return _base_agenda_queryset().filter(user=user, criado_por=user)
+
+
+def _can_manage_agenda_activity(user, atividade):
+    if _user_is_gp(user):
+        return atividade.user_id == user.pk or atividade.criado_por_id == user.pk
+    return atividade.user_id == user.pk and atividade.criado_por_id == user.pk
+
+
+def _month_bounds(month_start):
+    first_day = month_start.replace(day=1)
+    last_day = date(
+        first_day.year,
+        first_day.month,
+        calendar.monthrange(first_day.year, first_day.month)[1],
+    )
+    return first_day, last_day
+
+
+def _month_navigation(month_start):
+    prev_month = (month_start.replace(day=1) - timedelta(days=1)).replace(day=1)
+    next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
+    return prev_month, next_month
+
+
+def _build_agenda_calendar(month_start, atividades):
+    first_day, last_day = _month_bounds(month_start)
+    cal = calendar.Calendar(firstweekday=6)
+    atividades_por_dia = defaultdict(list)
+
+    for atividade in atividades:
+        current_day = max(atividade.data_inicio, first_day)
+        final_day = min(atividade.data_fim, last_day)
+        while current_day <= final_day:
+            atividades_por_dia[current_day].append(atividade)
+            current_day += timedelta(days=1)
+
+    weeks = []
+    for week in cal.monthdatescalendar(first_day.year, first_day.month):
+        week_days = []
+        for day in week:
+            items = list(atividades_por_dia.get(day, []))
+            week_days.append(
+                {
+                    'date': day,
+                    'in_month': day.month == first_day.month,
+                    'is_today': day == date.today(),
+                    'atividades': items,
+                }
+            )
+        weeks.append(week_days)
+    return weeks
+
+
+def _agenda_filter_context(month_start, selected_user):
+    prev_month, next_month = _month_navigation(month_start)
+    return {
+        'mes': month_start.strftime('%Y-%m'),
+        'mes_label': f'{MONTH_LABELS[month_start.month]} de {month_start.year}',
+        'mes_anterior': prev_month.strftime('%Y-%m'),
+        'mes_proximo': next_month.strftime('%Y-%m'),
+        'selected_user': selected_user,
+    }
 
 
 def _filter_registros(request):
@@ -142,6 +247,50 @@ def _filter_estimativas(request):
         'ate': data_final.isoformat() if data_final else '',
         'cliente': cliente,
     }
+
+
+def _agenda_selected_user(request):
+    if not _user_is_gp(request.user):
+        return request.user
+
+    user_id = request.GET.get('usuario')
+    if not user_id:
+        return None
+
+    return get_object_or_404(User.objects.order_by('username'), pk=user_id)
+
+
+def _agenda_list_queryset(request, selected_user, month_start):
+    if selected_user is None:
+        return _base_agenda_queryset().none()
+
+    month_first_day, month_last_day = _month_bounds(month_start)
+    return (
+        _base_agenda_queryset()
+        .filter(
+            user=selected_user,
+            data_inicio__lte=month_last_day,
+            data_fim__gte=month_first_day,
+        )
+        .order_by('data_inicio', 'titulo', 'pk')
+    )
+
+
+def _agenda_users_for_filter():
+    return User.objects.order_by('username')
+
+
+def _build_agenda_query(month_start, selected_user):
+    query = {'mes': month_start.strftime('%Y-%m')}
+    if selected_user is not None:
+        query['usuario'] = selected_user.pk
+    return query
+
+
+def _build_agenda_url(month_start, selected_user):
+    query = _build_agenda_query(month_start, selected_user)
+    params = '&'.join(f'{key}={value}' for key, value in query.items())
+    return f"{reverse('horas:agenda')}?{params}" if params else reverse('horas:agenda')
 
 
 def _save_estimativa_formset(formset):
@@ -374,6 +523,110 @@ class AuthenticatedViewMixin(LoginRequiredMixin):
 
 class DashboardView(AuthenticatedViewMixin, RedirectView):
     pattern_name = 'horas:timer'
+
+
+class AgendaView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
+    template_name = 'horas/agenda.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        month_start = _parse_month(self.request.GET.get('mes'))
+        selected_user = _agenda_selected_user(self.request)
+        atividades = list(_agenda_list_queryset(self.request, selected_user, month_start))
+        for atividade in atividades:
+            atividade.can_manage = _can_manage_agenda_activity(self.request.user, atividade)
+
+        context['section'] = 'agenda'
+        context['is_gp'] = _user_is_gp(self.request.user)
+        context['agenda_weeks'] = _build_agenda_calendar(month_start, atividades) if selected_user else []
+        context['agenda_atividades'] = atividades
+        context['agenda_filters'] = _agenda_filter_context(month_start, selected_user)
+        context['agenda_url'] = _build_agenda_url(month_start, selected_user)
+        context['agenda_users'] = _agenda_users_for_filter() if context['is_gp'] else []
+        context['selected_user'] = selected_user
+        context['show_agenda_empty_filter'] = context['is_gp'] and selected_user is None
+        return context
+
+
+class AgendaBaseFormView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
+    template_name = 'horas/agenda_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        if not hasattr(self, 'month_start'):
+            self.month_start = _parse_month(request.GET.get('mes'))
+        if not hasattr(self, 'selected_user'):
+            self.selected_user = _agenda_selected_user(request)
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['section'] = 'agenda'
+        context['form'] = kwargs.get('form')
+        context['atividade'] = getattr(self, 'atividade', None)
+        context['is_gp'] = _user_is_gp(self.request.user)
+        context['agenda_back_url'] = _build_agenda_url(self.month_start, self.selected_user)
+        return context
+
+
+class AgendaCreateView(AgendaBaseFormView):
+    def get_context_data(self, **kwargs):
+        form = kwargs.get('form') or AgendaAtividadeForm(current_user=self.request.user)
+        return super().get_context_data(form=form, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        form = AgendaAtividadeForm(request.POST, current_user=request.user)
+        if form.is_valid():
+            atividade = form.save(commit=False)
+            atividade.criado_por = request.user
+            if not _user_is_gp(request.user):
+                atividade.user = request.user
+            atividade.save()
+            messages.success(request, 'Atividade adicionada na agenda com sucesso.')
+            return redirect(
+                _build_agenda_url(
+                    atividade.data_inicio.replace(day=1),
+                    atividade.user if _user_is_gp(request.user) else request.user,
+                )
+            )
+
+        messages.error(request, 'Corrija os campos destacados antes de salvar a atividade.')
+        return self.render_to_response(self.get_context_data(form=form))
+
+
+class AgendaUpdateView(AgendaBaseFormView):
+    def dispatch(self, request, *args, **kwargs):
+        self.atividade = get_object_or_404(_agenda_manage_queryset(request.user), pk=kwargs['pk'])
+        self.selected_user = self.atividade.user if _user_is_gp(request.user) else request.user
+        self.month_start = self.atividade.data_inicio.replace(day=1)
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        form = kwargs.get('form') or AgendaAtividadeForm(instance=self.atividade, current_user=self.request.user)
+        return super().get_context_data(form=form, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        form = AgendaAtividadeForm(request.POST, instance=self.atividade, current_user=request.user)
+        if form.is_valid():
+            atividade = form.save(commit=False)
+            if not _user_is_gp(request.user):
+                atividade.user = request.user
+            atividade.save()
+            messages.success(request, 'Atividade da agenda atualizada com sucesso.')
+            return redirect(_build_agenda_url(atividade.data_inicio.replace(day=1), atividade.user))
+
+        messages.error(request, 'Corrija os campos destacados antes de salvar a atividade.')
+        return self.render_to_response(self.get_context_data(form=form))
+
+
+@method_decorator(login_required(login_url='login'), name='dispatch')
+class AgendaDeleteView(View):
+    def post(self, request, pk):
+        atividade = get_object_or_404(_agenda_manage_queryset(request.user), pk=pk)
+        month_start = atividade.data_inicio.replace(day=1)
+        selected_user = atividade.user
+        atividade.delete()
+        messages.success(request, 'Atividade removida da agenda.')
+        return redirect(_build_agenda_url(month_start, selected_user if _user_is_gp(request.user) else request.user))
 
 
 class TimerView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):

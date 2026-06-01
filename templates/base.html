@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Apontamento de Horas{% endblock %}</title>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{% static 'css/style.css' %}?v=estimativas-layout-2">
+  <link rel="stylesheet" href="{% static 'css/style.css' %}?v=agenda-outlook-1">
 </head>
 <body class="{% if not user.is_authenticated %}auth-body{% endif %}">
   {% if user.is_authenticated %}
@@ -19,6 +19,9 @@
       <nav>
         <a class="nav-item {% if section == 'timer' %}active{% endif %}" href="{% url 'horas:timer' %}">
           <span class="nav-icon">⏱</span> Timer
+        </a>
+        <a class="nav-item {% if section == 'agenda' %}active{% endif %}" href="{% url 'horas:agenda' %}">
+          <span class="nav-icon">A</span> Agenda
         </a>
         <a class="nav-item {% if section == 'registros' %}active{% endif %}" href="{% url 'horas:registros' %}">
           <span class="nav-icon">📋</span> Registros

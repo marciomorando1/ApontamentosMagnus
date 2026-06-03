@@ -11,12 +11,13 @@
     <a class="btn btn-ghost" href="{{ agenda_back_url }}">Voltar</a>
   </div>
 
-  <form method="post" class="timer-card agenda-form-card">
-    {% csrf_token %}
+  <div class="timer-card agenda-form-card">
+    <form id="agenda-save-form" method="post">
+      {% csrf_token %}
 
-    {% if form.user.is_hidden %}
-      {{ form.user }}
-    {% endif %}
+      {% if form.user.is_hidden %}
+        {{ form.user }}
+      {% endif %}
 
     <div class="form-row">
       {% if not form.user.is_hidden %}
@@ -83,15 +84,17 @@
       {% endfor %}
     {% endif %}
 
+    </form>
+
     <div class="btn-row">
-      <button class="btn btn-primary" type="submit">Salvar atividade</button>
+      <button class="btn btn-primary" type="submit" form="agenda-save-form">Salvar atividade</button>
       <a class="btn btn-ghost" href="{{ agenda_back_url }}">Cancelar</a>
       {% if atividade %}
-        <form method="post" action="{% url 'horas:agenda_remover' atividade.pk %}">
+        <form id="agenda-remove-form" method="post" action="{% url 'horas:agenda_remover' atividade.pk %}">
           {% csrf_token %}
           <button class="btn btn-danger" type="submit">Remover</button>
         </form>
       {% endif %}
     </div>
-  </form>
+  </div>
 {% endblock %}

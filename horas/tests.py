@@ -955,6 +955,29 @@ class AgendaViewTests(TestCase):
         self.assertContains(response, f'mes=2026-05&usuario={self.user.pk}')
         self.assertContains(response, f'mes=2026-07&usuario={self.user.pk}')
 
+    def test_formulario_edicao_mantem_remocao_em_form_separado(self):
+        atividade = self.criar_atividade(user=self.user, criado_por=self.user)
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('horas:agenda_editar', args=[atividade.pk]))
+        content = response.content.decode()
+
+        self.assertContains(response, 'id="agenda-save-form"', html=False)
+        self.assertContains(response, 'id="agenda-remove-form"', html=False)
+        self.assertLess(
+            content.index('</form>'),
+            content.index('id="agenda-remove-form"'),
+        )
+
+    def test_remove_atividade_da_agenda(self):
+        atividade = self.criar_atividade(user=self.user, criado_por=self.user)
+        self.client.force_login(self.user)
+
+        response = self.client.post(reverse('horas:agenda_remover', args=[atividade.pk]))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(AgendaAtividade.objects.filter(pk=atividade.pk).exists())
+
     def test_formulario_exibe_campo_usuario_apenas_para_gerente(self):
         self.client.force_login(self.gp)
         response_gp = self.client.get(reverse('horas:agenda_nova'))

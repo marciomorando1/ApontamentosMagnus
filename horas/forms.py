@@ -61,6 +61,12 @@ RECURSO_CHOICES = [
     ('Análise da Demanda', 'Análise da Demanda'),
 ]
 
+AGENDA_PRODUTO_CHOICES = [
+    ('', '— selecione —'),
+    ('ERP', 'ERP'),
+    ('HCM', 'HCM'),
+]
+
 
 class DateInput(forms.DateInput):
     input_type = 'date'
@@ -74,12 +80,22 @@ class TimeInput(forms.TimeInput):
     input_type = 'time'
 
 
+class AgendaOrcamentoSelect(forms.Select):
+    def create_option(self, name, value, label, selected, index, subindex=None, attrs=None):
+        option = super().create_option(name, value, label, selected, index, subindex, attrs)
+        if value and hasattr(value, 'instance'):
+            option['attrs']['data-cliente'] = value.instance.codigo_cliente
+            option['attrs']['data-chamado'] = value.instance.numero_chamado
+        return option
+
+
 class DurationField(forms.CharField):
     default_error_messages = {
         'invalid': 'Informe as horas no formato HH:MM.',
     }
 
     def __init__(self, *args, **kwargs):
+        self.compact_digits = kwargs.pop('compact_digits', False)
         kwargs.setdefault(
             'widget',
             forms.TextInput(
@@ -105,10 +121,19 @@ class DurationField(forms.CharField):
     def to_python(self, value):
         value = super().to_python(value)
         if value in (None, ''):
+            if self.required:
+                return None
             return Decimal('0')
 
         value = value.strip()
         if ':' not in value:
+            if self.compact_digits and value.isdigit():
+                hours_text = value[:-2] or '0'
+                minutes_text = value[-2:]
+                minutes = int(minutes_text)
+                if minutes > 59:
+                    raise forms.ValidationError(self.error_messages['invalid'], code='invalid')
+                return Decimal(hours_text) + (Decimal(minutes) / Decimal('60'))
             try:
                 return Decimal(value.replace(',', '.'))
             except InvalidOperation as exc:
@@ -141,8 +166,9 @@ class RegistroForm(forms.ModelForm):
         if not self.is_bound and not self.instance.pk:
             self.fields['data'].initial = date.today()
         queryset = Orcamento.objects.filter(ativo=True)
-        if self.instance.pk and self.instance.orcamento_id:
-            queryset = Orcamento.objects.filter(Q(ativo=True) | Q(pk=self.instance.orcamento_id))
+        selected_orcamento_id = self.instance.orcamento_id if self.instance.pk else self.initial.get('orcamento')
+        if selected_orcamento_id:
+            queryset = Orcamento.objects.filter(Q(ativo=True) | Q(pk=selected_orcamento_id))
         self.fields['orcamento'].queryset = queryset.order_by('codigo')
         self.fields['orcamento'].empty_label = '— selecione —'
 
@@ -153,10 +179,39 @@ class RegistroForm(forms.ModelForm):
 class OrcamentoForm(forms.ModelForm):
     class Meta:
         model = Orcamento
-        fields = ['codigo', 'nome']
+        fields = ['codigo', 'codigo_cliente', 'numero_chamado', 'nome']
+        error_messages = {
+            'codigo': {
+                'unique': 'Já existe um orçamento com este código.',
+            },
+        }
+        widgets = {
+            'codigo': forms.TextInput(attrs={'inputmode': 'numeric', 'pattern': r'\d*', 'class': 'numeric-only'}),
+            'codigo_cliente': forms.TextInput(attrs={'inputmode': 'numeric', 'pattern': r'\d*', 'class': 'numeric-only'}),
+            'numero_chamado': forms.TextInput(attrs={'inputmode': 'numeric', 'pattern': r'\d*', 'class': 'numeric-only'}),
+        }
 
     def clean_codigo(self):
         return self.cleaned_data['codigo'].strip()
+
+    def clean_codigo_cliente(self):
+        return self.cleaned_data['codigo_cliente'].strip()
+
+    def clean_numero_chamado(self):
+        return self.cleaned_data['numero_chamado'].strip()
+
+
+class OrcamentoImportForm(forms.Form):
+    arquivo = forms.FileField(
+        label='Planilha Excel',
+        widget=forms.FileInput(attrs={'accept': '.xlsx'}),
+    )
+
+    def clean_arquivo(self):
+        arquivo = self.cleaned_data['arquivo']
+        if not arquivo.name.lower().endswith('.xlsx'):
+            raise forms.ValidationError('Selecione uma planilha no formato XLSX.')
+        return arquivo
 
 
 class FaseForm(forms.ModelForm):
@@ -272,6 +327,16 @@ class EstimativaItemForm(forms.ModelForm):
 
 
 class AgendaAtividadeForm(forms.ModelForm):
+    produto = forms.ChoiceField(
+        choices=AGENDA_PRODUTO_CHOICES,
+        required=True,
+    )
+    total_horas_maximo = DurationField(
+        label='Total de Horas Máximo',
+        required=True,
+        compact_digits=True,
+    )
+
     class Meta:
         model = AgendaAtividade
         fields = [
@@ -283,17 +348,36 @@ class AgendaAtividadeForm(forms.ModelForm):
             'titulo',
             'descricao',
             'data_inicio',
+            'hora_inicio',
             'data_fim',
+            'hora_fim',
+            'total_horas_maximo',
         ]
         widgets = {
+            'orcamento': AgendaOrcamentoSelect(),
             'data_inicio': DateInput(),
+            'hora_inicio': TimeInput(format='%H:%M'),
             'data_fim': DateInput(),
+            'hora_fim': TimeInput(format='%H:%M'),
             'descricao': forms.Textarea(attrs={'rows': 4}),
         }
 
     def __init__(self, *args, current_user=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.current_user = current_user
+        self.fields['hora_inicio'].required = True
+        self.fields['hora_fim'].required = True
+        if not self.instance.pk:
+            self.fields['cliente'].required = False
+            self.fields['cliente'].widget.attrs['readonly'] = 'readonly'
+            self.fields['numero_chamado'].widget.attrs['readonly'] = 'readonly'
+        if self.instance.pk and self.instance.produto:
+            produtos_disponiveis = {value for value, _ in self.fields['produto'].choices}
+            if self.instance.produto not in produtos_disponiveis:
+                self.fields['produto'].choices = [
+                    *self.fields['produto'].choices,
+                    (self.instance.produto, self.instance.produto),
+                ]
         queryset = Orcamento.objects.filter(ativo=True)
         if self.instance.pk and self.instance.orcamento_id:
             queryset = Orcamento.objects.filter(Q(ativo=True) | Q(pk=self.instance.orcamento_id))
@@ -331,6 +415,22 @@ class AgendaAtividadeForm(forms.ModelForm):
 
     def clean_descricao(self):
         return self.cleaned_data['descricao'].strip()
+
+    def clean_total_horas_maximo(self):
+        total_horas_maximo = self.cleaned_data['total_horas_maximo']
+        if total_horas_maximo <= 0:
+            raise forms.ValidationError('O total de horas máximo deve ser maior que zero.')
+        return total_horas_maximo
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if not self.instance.pk and cleaned_data.get('orcamento'):
+            orcamento = cleaned_data['orcamento']
+            cleaned_data['cliente'] = orcamento.codigo_cliente
+            cleaned_data['numero_chamado'] = orcamento.numero_chamado
+            if not orcamento.codigo_cliente:
+                self.add_error('cliente', 'O orçamento selecionado não possui código do cliente.')
+        return cleaned_data
 
 
 EstimativaItemFormSet = inlineformset_factory(

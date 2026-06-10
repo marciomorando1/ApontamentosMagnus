@@ -31,6 +31,7 @@ from .forms import (
     EstimativaItemFormSet,
     FaseForm,
     OrcamentoForm,
+    OrcamentoImportForm,
     RegistroForm,
 )
 from .models import AgendaAtividade, Estimativa, Fase, Orcamento, Registro, UserProfile
@@ -153,6 +154,16 @@ def _build_agenda_calendar(month_start, atividades):
             atividades_por_dia[current_day].append(atividade)
             current_day += timedelta(days=1)
 
+    for items in atividades_por_dia.values():
+        items.sort(
+            key=lambda atividade: (
+                atividade.hora_inicio is None,
+                atividade.hora_inicio,
+                atividade.titulo,
+                atividade.pk,
+            )
+        )
+
     weeks = []
     for week in cal.monthdatescalendar(first_day.year, first_day.month):
         week_days = []
@@ -272,7 +283,7 @@ def _agenda_list_queryset(request, selected_user, month_start):
             data_inicio__lte=month_last_day,
             data_fim__gte=month_first_day,
         )
-        .order_by('data_inicio', 'titulo', 'pk')
+        .order_by('data_inicio', 'hora_inicio', 'titulo', 'pk')
     )
 
 
@@ -502,6 +513,109 @@ def _build_estimativa_xlsx(estimativa):
     return output
 
 
+ORCAMENTO_IMPORT_HEADERS = [
+    'orcamento',
+    'cliente',
+    'chamado',
+    'descricao',
+]
+
+
+def _xlsx_cell_text(cell, shared_strings):
+    cell_type = cell.attrib.get('t')
+    value = cell.find(f'{{{XLSX_NS}}}v')
+    if cell_type == 'inlineStr':
+        return ''.join(node.text or '' for node in cell.findall(f'.//{{{XLSX_NS}}}t'))
+    if value is None or value.text is None:
+        return ''
+    if cell_type == 's':
+        return shared_strings[int(value.text)]
+    text = value.text
+    if re.fullmatch(r'\d+\.0+', text):
+        return text.split('.', 1)[0]
+    return text
+
+
+def _read_orcamentos_xlsx(arquivo):
+    try:
+        with zipfile.ZipFile(arquivo, 'r') as workbook:
+            shared_strings = []
+            if 'xl/sharedStrings.xml' in workbook.namelist():
+                shared_root = ET.fromstring(workbook.read('xl/sharedStrings.xml'))
+                shared_strings = [
+                    ''.join(node.text or '' for node in item.findall(f'.//{{{XLSX_NS}}}t'))
+                    for item in shared_root.findall(f'{{{XLSX_NS}}}si')
+                ]
+
+            workbook_root = ET.fromstring(workbook.read('xl/workbook.xml'))
+            rels_root = ET.fromstring(workbook.read('xl/_rels/workbook.xml.rels'))
+            relmap = {rel.attrib['Id']: rel.attrib['Target'] for rel in rels_root}
+            first_sheet = workbook_root.find(f'{{{XLSX_NS}}}sheets/{{{XLSX_NS}}}sheet')
+            sheet_target = relmap[first_sheet.attrib[f'{{{REL_NS}}}id']]
+            sheet_path = 'xl/' + sheet_target.lstrip('/').replace('../', '')
+            sheet_root = ET.fromstring(workbook.read(sheet_path))
+    except (AttributeError, IndexError, KeyError, ValueError, zipfile.BadZipFile, ET.ParseError) as exc:
+        raise ValueError('Não foi possível ler a planilha XLSX enviada.') from exc
+
+    rows = []
+    for row in sheet_root.findall(f'.//{{{XLSX_NS}}}sheetData/{{{XLSX_NS}}}row'):
+        values = {}
+        for cell in row.findall(f'{{{XLSX_NS}}}c'):
+            _, column = _cell_position(cell.attrib.get('r', ''))
+            values[column] = _xlsx_cell_text(cell, shared_strings).strip()
+        if values:
+            last_column = max(values)
+            rows.append([values.get(column, '') for column in range(1, last_column + 1)])
+    return rows
+
+
+def _validate_orcamentos_import(rows):
+    errors = []
+    if not rows:
+        return [], ['A planilha está vazia.']
+
+    headers = [_normalize_estimativa_text(value) for value in rows[0]]
+    if headers != ORCAMENTO_IMPORT_HEADERS:
+        return [], [
+            'Os cabeçalhos devem estar nesta ordem: orcamento, cliente, chamado, descricao.'
+        ]
+
+    existing_codes = set(Orcamento.objects.values_list('codigo', flat=True))
+    imported_codes = set()
+    orcamentos = []
+    for row_number, row in enumerate(rows[1:], start=2):
+        values = (row + ['', '', '', ''])[:4]
+        if not any(values):
+            continue
+        codigo, codigo_cliente, numero_chamado, nome = (value.strip() for value in values)
+        if not codigo:
+            errors.append(f'Linha {row_number}: Código Orçamento é obrigatório.')
+            continue
+        for label, value in (
+            ('Código Orçamento', codigo),
+            ('Código Cliente', codigo_cliente),
+            ('Número do Chamado', numero_chamado),
+        ):
+            if value and not value.isdigit():
+                errors.append(f'Linha {row_number}: {label} deve conter somente números.')
+        if codigo in existing_codes:
+            errors.append(f'Linha {row_number}: o orçamento {codigo} já existe na base.')
+        if codigo in imported_codes:
+            errors.append(f'Linha {row_number}: o orçamento {codigo} está duplicado na planilha.')
+        imported_codes.add(codigo)
+        orcamentos.append(
+            Orcamento(
+                codigo=codigo,
+                codigo_cliente=codigo_cliente,
+                numero_chamado=numero_chamado,
+                nome=nome,
+            )
+        )
+    if not orcamentos and not errors:
+        errors.append('A planilha não possui orçamentos para importar.')
+    return orcamentos, errors
+
+
 class SidebarContextMixin:
     def get_sidebar_total_today(self):
         total = sum(
@@ -570,7 +684,22 @@ class AgendaBaseFormView(AuthenticatedViewMixin, SidebarContextMixin, TemplateVi
 
 class AgendaCreateView(AgendaBaseFormView):
     def get_context_data(self, **kwargs):
-        form = kwargs.get('form') or AgendaAtividadeForm(current_user=self.request.user)
+        form = kwargs.pop('form', None)
+        if form is None:
+            initial = {}
+            data_param = _parse_date(self.request.GET.get('data'))
+            if data_param:
+                initial['data_inicio'] = data_param
+                initial['data_fim'] = data_param
+            usuario_param = self.request.GET.get('usuario')
+            if usuario_param:
+                try:
+                    usuario_id = int(usuario_param)
+                except (TypeError, ValueError):
+                    usuario_id = None
+                if usuario_id and User.objects.filter(pk=usuario_id).exists():
+                    initial['user'] = usuario_id
+            form = AgendaAtividadeForm(initial=initial, current_user=self.request.user)
         return super().get_context_data(form=form, **kwargs)
 
     def post(self, request, *args, **kwargs):
@@ -601,7 +730,7 @@ class AgendaUpdateView(AgendaBaseFormView):
         return super().dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
-        form = kwargs.get('form') or AgendaAtividadeForm(instance=self.atividade, current_user=self.request.user)
+        form = kwargs.pop('form', None) or AgendaAtividadeForm(instance=self.atividade, current_user=self.request.user)
         return super().get_context_data(form=form, **kwargs)
 
     def post(self, request, *args, **kwargs):
@@ -635,7 +764,17 @@ class TimerView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['section'] = 'timer'
-        context['form'] = kwargs.get('form') or RegistroForm()
+        form = kwargs.get('form')
+        if form is None:
+            initial = {}
+            data_inicial = _parse_date(self.request.GET.get('data'))
+            orcamento_id = self.request.GET.get('orcamento')
+            if data_inicial:
+                initial['data'] = data_inicial
+            if orcamento_id and Orcamento.objects.filter(pk=orcamento_id).exists():
+                initial['orcamento'] = orcamento_id
+            form = RegistroForm(initial=initial)
+        context['form'] = form
         context['extra_rows'] = kwargs.get('extra_rows') or []
         return context
 
@@ -901,10 +1040,33 @@ class OrcamentosView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         context['section'] = 'orcamentos'
         context['form'] = kwargs.get('form') or OrcamentoForm()
+        context['import_form'] = kwargs.get('import_form') or OrcamentoImportForm()
+        context['import_errors'] = kwargs.get('import_errors') or []
         context['orcamentos'] = Orcamento.objects.order_by('codigo')
         return context
 
     def post(self, request, *args, **kwargs):
+        if request.POST.get('action') == 'importar':
+            import_form = OrcamentoImportForm(request.POST, request.FILES)
+            if import_form.is_valid():
+                try:
+                    rows = _read_orcamentos_xlsx(import_form.cleaned_data['arquivo'])
+                    orcamentos, import_errors = _validate_orcamentos_import(rows)
+                except ValueError as exc:
+                    import_errors = [str(exc)]
+                    orcamentos = []
+                if not import_errors:
+                    with transaction.atomic():
+                        Orcamento.objects.bulk_create(orcamentos)
+                    messages.success(request, f'{len(orcamentos)} orçamento(s) importado(s) com sucesso.')
+                    return redirect('horas:orcamentos')
+                messages.error(request, 'A planilha possui erros e nenhum orçamento foi importado.')
+                return self.render_to_response(
+                    self.get_context_data(import_form=import_form, import_errors=import_errors)
+                )
+            messages.error(request, 'Selecione uma planilha XLSX válida.')
+            return self.render_to_response(self.get_context_data(import_form=import_form))
+
         form = OrcamentoForm(request.POST)
         if form.is_valid():
             form.save()
@@ -912,6 +1074,31 @@ class OrcamentosView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
             return redirect('horas:orcamentos')
 
         messages.error(request, 'Corrija os campos destacados antes de adicionar o orçamento.')
+        return self.render_to_response(self.get_context_data(form=form))
+
+
+class OrcamentoUpdateView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
+    template_name = 'horas/orcamento_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.orcamento = get_object_or_404(Orcamento, pk=kwargs['pk'])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['section'] = 'orcamentos'
+        context['orcamento'] = self.orcamento
+        context['form'] = kwargs.get('form') or OrcamentoForm(instance=self.orcamento)
+        return context
+
+    def post(self, request, *args, **kwargs):
+        form = OrcamentoForm(request.POST, instance=self.orcamento)
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Orçamento atualizado com sucesso.')
+            return redirect('horas:orcamentos')
+
+        messages.error(request, 'Corrija os campos destacados antes de salvar o orçamento.')
         return self.render_to_response(self.get_context_data(form=form))
 
 

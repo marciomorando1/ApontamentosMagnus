@@ -28,9 +28,9 @@
         </div>
       {% endif %}
       <div class="field">
-        <label for="{{ form.cliente.id_for_label }}">Cliente</label>
-        {{ form.cliente }}
-        {% for error in form.cliente.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+        <label for="{{ form.orcamento.id_for_label }}">Número do Orçamento</label>
+        {{ form.orcamento }}
+        {% for error in form.orcamento.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
       </div>
       <div class="field">
         <label for="{{ form.numero_chamado.id_for_label }}">Número do Chamado</label>
@@ -41,9 +41,9 @@
 
     <div class="form-row triple">
       <div class="field">
-        <label for="{{ form.orcamento.id_for_label }}">Número do Orçamento</label>
-        {{ form.orcamento }}
-        {% for error in form.orcamento.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+        <label for="{{ form.cliente.id_for_label }}">Cliente</label>
+        {{ form.cliente }}
+        {% for error in form.cliente.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
       </div>
       <div class="field">
         <label for="{{ form.produto.id_for_label }}">Produto</label>
@@ -57,16 +57,31 @@
       </div>
     </div>
 
-    <div class="form-row">
+    <div class="agenda-schedule-row">
       <div class="field">
         <label for="{{ form.data_inicio.id_for_label }}">Data Início</label>
         {{ form.data_inicio }}
         {% for error in form.data_inicio.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
       </div>
       <div class="field">
+        <label for="{{ form.hora_inicio.id_for_label }}">Hora Início</label>
+        {{ form.hora_inicio }}
+        {% for error in form.hora_inicio.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
         <label for="{{ form.data_fim.id_for_label }}">Data Fim</label>
         {{ form.data_fim }}
         {% for error in form.data_fim.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
+        <label for="{{ form.hora_fim.id_for_label }}">Hora Fim</label>
+        {{ form.hora_fim }}
+        {% for error in form.hora_fim.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
+        <label for="{{ form.total_horas_maximo.id_for_label }}">Total de Horas Máximo</label>
+        {{ form.total_horas_maximo }}
+        {% for error in form.total_horas_maximo.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
       </div>
     </div>
 
@@ -97,4 +112,46 @@
       {% endif %}
     </div>
   </div>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const agendaForm = document.getElementById('agenda-save-form');
+    const maximumHoursField = document.getElementById('{{ form.total_horas_maximo.id_for_label }}');
+    const budgetField = document.getElementById('{{ form.orcamento.id_for_label }}');
+    const clientField = document.getElementById('{{ form.cliente.id_for_label }}');
+    const ticketField = document.getElementById('{{ form.numero_chamado.id_for_label }}');
+
+    function maskDurationInput(input) {
+      const digits = input.value.replace(/\D/g, '').slice(0, 6);
+      if (digits.length <= 2) {
+        input.value = digits;
+        return;
+      }
+      input.value = `${digits.slice(0, -2)}:${digits.slice(-2)}`;
+    }
+
+    function normalizeDurationInput(input) {
+      const digits = input.value.replace(/\D/g, '');
+      if (!digits) return;
+      const minutes = Number(digits.slice(-2));
+      const hours = Number(digits.slice(0, -2) || 0);
+      input.value = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+    }
+
+    maximumHoursField.addEventListener('input', () => maskDurationInput(maximumHoursField));
+    maximumHoursField.addEventListener('blur', () => normalizeDurationInput(maximumHoursField));
+    agendaForm.addEventListener('submit', () => normalizeDurationInput(maximumHoursField));
+
+    {% if not atividade %}
+      function fillBudgetData() {
+        const selectedOption = budgetField.options[budgetField.selectedIndex];
+        clientField.value = selectedOption?.dataset.cliente || '';
+        ticketField.value = selectedOption?.dataset.chamado || '';
+      }
+
+      budgetField.addEventListener('change', fillBudgetData);
+      fillBudgetData();
+    {% endif %}
+  </script>
 {% endblock %}

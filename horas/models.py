@@ -3,7 +3,14 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.validators import RegexValidator
 from django.db import models
+
+
+somente_numeros_validator = RegexValidator(
+    regex=r'^\d+$',
+    message='Informe somente números.',
+)
 
 
 def format_decimal_hours(value):
@@ -26,7 +33,9 @@ class Fase(models.Model):
 
 
 class Orcamento(models.Model):
-    codigo = models.CharField(max_length=20, unique=True)
+    codigo = models.CharField(max_length=20, unique=True, validators=[somente_numeros_validator])
+    codigo_cliente = models.CharField(max_length=50, blank=True, validators=[somente_numeros_validator])
+    numero_chamado = models.CharField(max_length=100, blank=True, validators=[somente_numeros_validator])
     nome = models.CharField(max_length=200, blank=True)
     ativo = models.BooleanField(default=True)
     criado_em = models.DateTimeField(auto_now_add=True)
@@ -150,16 +159,41 @@ class AgendaAtividade(models.Model):
     descricao = models.TextField(blank=True)
     data_inicio = models.DateField()
     data_fim = models.DateField()
+    hora_inicio = models.TimeField(null=True, blank=True)
+    hora_fim = models.TimeField(null=True, blank=True)
+    total_horas_maximo = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
     criado_em = models.DateTimeField(auto_now_add=True)
     atualizado_em = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ['data_inicio', 'titulo', 'pk']
+        ordering = ['data_inicio', 'hora_inicio', 'titulo', 'pk']
+
+    @property
+    def total_horas_maximo_formatado(self):
+        if self.total_horas_maximo is None:
+            return ''
+        return format_decimal_hours(self.total_horas_maximo)
 
     def clean(self):
         errors = {}
         if self.data_inicio and self.data_fim and self.data_fim < self.data_inicio:
             errors['data_fim'] = 'A data final deve ser maior ou igual a data inicial.'
+        elif (
+            self.data_inicio
+            and self.data_fim
+            and self.data_inicio == self.data_fim
+            and self.hora_inicio
+            and self.hora_fim
+            and self.hora_fim <= self.hora_inicio
+        ):
+            errors['hora_fim'] = 'A hora final deve ser maior que a hora inicial.'
+        if self.total_horas_maximo is not None and self.total_horas_maximo <= 0:
+            errors['total_horas_maximo'] = 'O total de horas máximo deve ser maior que zero.'
         if errors:
             raise ValidationError(errors)
 

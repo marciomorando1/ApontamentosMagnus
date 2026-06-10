@@ -35,8 +35,8 @@ class FaseAdmin(admin.ModelAdmin):
 
 @admin.register(Orcamento)
 class OrcamentoAdmin(admin.ModelAdmin):
-    list_display = ('codigo', 'nome', 'ativo', 'criado_em')
-    search_fields = ('codigo', 'nome')
+    list_display = ('codigo', 'codigo_cliente', 'numero_chamado', 'nome', 'ativo', 'criado_em')
+    search_fields = ('codigo', 'codigo_cliente', 'numero_chamado', 'nome')
     list_filter = ('ativo',)
 
 
@@ -56,6 +56,16 @@ class UserProfileAdmin(admin.ModelAdmin):
 
 @admin.register(AgendaAtividade)
 class AgendaAtividadeAdmin(admin.ModelAdmin):
-    list_display = ('titulo', 'user', 'criado_por', 'orcamento', 'data_inicio', 'data_fim')
+    list_display = (
+        'titulo',
+        'user',
+        'criado_por',
+        'orcamento',
+        'data_inicio',
+        'hora_inicio',
+        'data_fim',
+        'hora_fim',
+        'total_horas_maximo_formatado',
+    )
     list_filter = ('user', 'criado_por', 'data_inicio', 'data_fim', 'orcamento')
     search_fields = ('titulo', 'cliente', 'numero_chamado', 'produto', 'descricao', 'user__username', 'criado_por__username')

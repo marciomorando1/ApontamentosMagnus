@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+
+{% block title %}Editar orçamento | Apontamento de Horas{% endblock %}
+
+{% block content %}
+  <div class="section-header">
+    <div>
+      <h1 class="page-title">Editar orçamento</h1>
+      <div class="section-label">{{ orcamento.codigo }}</div>
+    </div>
+    <a class="btn btn-ghost" href="{% url 'horas:orcamentos' %}">Voltar</a>
+  </div>
+
+  <form method="post" class="timer-card">
+    {% csrf_token %}
+    <div class="form-row triple">
+      <div class="field">
+        <label for="{{ form.codigo.id_for_label }}">Código</label>
+        {{ form.codigo }}
+        {% for error in form.codigo.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
+        <label for="{{ form.codigo_cliente.id_for_label }}">Código do Cliente</label>
+        {{ form.codigo_cliente }}
+        {% for error in form.codigo_cliente.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
+        <label for="{{ form.numero_chamado.id_for_label }}">Número do Chamado</label>
+        {{ form.numero_chamado }}
+        {% for error in form.numero_chamado.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+    </div>
+    <div class="form-row single">
+      <div class="field">
+        <label for="{{ form.nome.id_for_label }}">Nome / Descrição</label>
+        {{ form.nome }}
+        {% for error in form.nome.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" type="submit">Salvar alterações</button>
+      <a class="btn btn-ghost" href="{% url 'horas:orcamentos' %}">Cancelar</a>
+    </div>
+  </form>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    document.querySelectorAll('.numeric-only').forEach((field) => {
+      field.addEventListener('keydown', (event) => {
+        if (
+          event.ctrlKey
+          || event.metaKey
+          || event.altKey
+          || ['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'Tab'].includes(event.key)
+        ) {
+          return;
+        }
+        if (!/^\d$/.test(event.key)) {
+          event.preventDefault();
+        }
+      });
+
+      field.addEventListener('input', () => {
+        field.value = field.value.replace(/\D/g, '');
+      });
+    });
+  </script>
+{% endblock %}

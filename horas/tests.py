@@ -6,6 +6,7 @@ from xml.etree import ElementTree as ET
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 
@@ -13,6 +14,66 @@ from .models import AgendaAtividade, Estimativa, Fase, Orcamento, Registro, User
 
 
 User = get_user_model()
+
+
+def build_test_xlsx(rows):
+    worksheet = ET.Element(
+        '{http://schemas.openxmlformats.org/spreadsheetml/2006/main}worksheet'
+    )
+    sheet_data = ET.SubElement(
+        worksheet,
+        '{http://schemas.openxmlformats.org/spreadsheetml/2006/main}sheetData',
+    )
+    for row_number, values in enumerate(rows, start=1):
+        row = ET.SubElement(
+            sheet_data,
+            '{http://schemas.openxmlformats.org/spreadsheetml/2006/main}row',
+            {'r': str(row_number)},
+        )
+        for column_number, value in enumerate(values, start=1):
+            column = ''
+            number = column_number
+            while number:
+                number, remainder = divmod(number - 1, 26)
+                column = chr(65 + remainder) + column
+            cell = ET.SubElement(
+                row,
+                '{http://schemas.openxmlformats.org/spreadsheetml/2006/main}c',
+                {'r': f'{column}{row_number}', 't': 'inlineStr'},
+            )
+            inline = ET.SubElement(
+                cell,
+                '{http://schemas.openxmlformats.org/spreadsheetml/2006/main}is',
+            )
+            ET.SubElement(
+                inline,
+                '{http://schemas.openxmlformats.org/spreadsheetml/2006/main}t',
+            ).text = str(value)
+
+    output = BytesIO()
+    with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as workbook:
+        workbook.writestr(
+            'xl/worksheets/sheet1.xml',
+            ET.tostring(worksheet, encoding='utf-8', xml_declaration=True),
+        )
+        workbook.writestr(
+            'xl/workbook.xml',
+            '''<?xml version="1.0" encoding="UTF-8"?>
+            <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+              xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+              <sheets><sheet name="Orcamentos" sheetId="1" r:id="rId1"/></sheets>
+            </workbook>''',
+        )
+        workbook.writestr(
+            'xl/_rels/workbook.xml.rels',
+            '''<?xml version="1.0" encoding="UTF-8"?>
+            <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+              <Relationship Id="rId1" Target="worksheets/sheet1.xml"
+                Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet"/>
+            </Relationships>''',
+        )
+    output.seek(0)
+    return output
 
 
 class AuthenticatedTestCase(TestCase):
@@ -110,6 +171,31 @@ class TimerViewTests(AuthenticatedTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(Registro.objects.count(), 1)
         self.assertEqual(Registro.objects.get().user, self.user)
+
+    def test_abre_apontamento_com_data_e_orcamento_preenchidos(self):
+        data_apontamento = date(2026, 6, 10)
+
+        response = self.client.get(
+            reverse('horas:timer'),
+            {'data': data_apontamento.isoformat(), 'orcamento': self.orcamento.pk},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['form'].initial['data'], data_apontamento)
+        self.assertEqual(response.context['form'].initial['orcamento'], str(self.orcamento.pk))
+        self.assertContains(response, 'value="2026-06-10"', html=False)
+        self.assertContains(response, f'<option value="{self.orcamento.pk}" selected>', html=False)
+
+    def test_apontamento_preenche_orcamento_da_agenda_mesmo_se_inativo(self):
+        self.orcamento.ativo = False
+        self.orcamento.save(update_fields=['ativo'])
+
+        response = self.client.get(
+            reverse('horas:timer'),
+            {'data': '2026-06-10', 'orcamento': self.orcamento.pk},
+        )
+
+        self.assertContains(response, f'<option value="{self.orcamento.pk}" selected>', html=False)
 
     def test_salva_varios_registros_manuais_no_mesmo_envio(self):
         response = self.client.post(
@@ -466,6 +552,252 @@ class AuthenticationFlowTests(TestCase):
         self.assertRedirects(response, f"{reverse('login')}?next={reverse('horas:timer')}")
 
 
+class OrcamentosViewTests(AuthenticatedTestCase):
+    headers_importacao = [
+        'orcamento',
+        'cliente',
+        'chamado',
+        'descricao',
+    ]
+
+    def importar_planilha(self, rows, filename='orcamentos.xlsx'):
+        arquivo = SimpleUploadedFile(
+            filename,
+            build_test_xlsx(rows).getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        return self.client.post(
+            reverse('horas:orcamentos'),
+            data={'action': 'importar', 'arquivo': arquivo},
+        )
+
+    def test_cadastra_orcamento_com_codigo_cliente_e_numero_chamado(self):
+        response = self.client.post(
+            reverse('horas:orcamentos'),
+            data={
+                'codigo': '100',
+                'codigo_cliente': '200',
+                'numero_chamado': '300',
+                'nome': 'Projeto com chamado',
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        orcamento = Orcamento.objects.get(codigo='100')
+        self.assertEqual(orcamento.codigo_cliente, '200')
+        self.assertEqual(orcamento.numero_chamado, '300')
+        self.assertContains(response, '<td class="mono">200</td>', html=True)
+        self.assertContains(response, '<td class="mono">300</td>', html=True)
+
+    def test_lista_orcamentos_em_linhas_com_acoes(self):
+        orcamento = Orcamento.objects.create(
+            codigo='1001',
+            codigo_cliente='2001',
+            numero_chamado='3001',
+            nome='Projeto em linha',
+        )
+
+        response = self.client.get(reverse('horas:orcamentos'))
+
+        self.assertContains(response, '<table>', html=False)
+        self.assertNotContains(response, 'class="orc-grid"', html=False)
+        self.assertContains(response, 'Projeto em linha')
+        self.assertContains(response, reverse('horas:orcamento_editar', args=[orcamento.pk]))
+        self.assertContains(response, reverse('horas:orcamento_remover', args=[orcamento.pk]))
+
+    def test_rejeita_letras_nos_campos_numericos(self):
+        response = self.client.post(
+            reverse('horas:orcamentos'),
+            data={
+                'codigo': 'ORC-100',
+                'codigo_cliente': 'CLI-200',
+                'numero_chamado': 'CH-300',
+                'nome': 'Projeto inválido',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Orcamento.objects.filter(nome='Projeto inválido').exists())
+        self.assertFormError(response.context['form'], 'codigo', 'Informe somente números.')
+        self.assertFormError(response.context['form'], 'codigo_cliente', 'Informe somente números.')
+        self.assertFormError(response.context['form'], 'numero_chamado', 'Informe somente números.')
+
+    def test_formulario_configura_teclado_numerico(self):
+        response = self.client.get(reverse('horas:orcamentos'))
+
+        self.assertContains(response, 'name="codigo" inputmode="numeric"', html=False)
+        self.assertContains(response, 'name="codigo_cliente" inputmode="numeric"', html=False)
+        self.assertContains(response, 'name="numero_chamado" inputmode="numeric"', html=False)
+        self.assertContains(response, 'numeric-only', count=4)
+        self.assertContains(response, "field.value.replace(/\\D/g, '')", html=False)
+        self.assertContains(response, 'event.preventDefault()', html=False)
+
+    def test_permite_orcamento_legado_sem_novos_campos(self):
+        orcamento = Orcamento.objects.create(codigo='ORC-LEGADO', nome='Legado')
+
+        self.assertEqual(orcamento.codigo_cliente, '')
+        self.assertEqual(orcamento.numero_chamado, '')
+
+    def test_importa_orcamentos_de_planilha_xlsx(self):
+        response = self.importar_planilha(
+            [
+                self.headers_importacao,
+                ['1001', '2001', '3001', 'Projeto A'],
+                ['1002', '2002', '3002', 'Projeto B'],
+            ]
+        )
+
+        self.assertRedirects(response, reverse('horas:orcamentos'), fetch_redirect_response=False)
+        self.assertTrue(
+            Orcamento.objects.filter(
+                codigo='1001',
+                codigo_cliente='2001',
+                numero_chamado='3001',
+                nome='Projeto A',
+            ).exists()
+        )
+        self.assertTrue(Orcamento.objects.filter(codigo='1002').exists())
+
+    def test_importacao_rejeita_cabecalhos_fora_de_ordem(self):
+        response = self.importar_planilha(
+            [
+                ['Código Cliente', 'Código Orçamento', 'Número do Chamado', 'Descrição'],
+                ['2001', '1001', '3001', 'Projeto A'],
+            ]
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Os cabeçalhos devem estar nesta ordem')
+        self.assertFalse(Orcamento.objects.filter(codigo='1001').exists())
+
+    def test_importacao_rejeita_orcamento_ja_existente_na_base(self):
+        Orcamento.objects.create(codigo='1001', nome='Existente')
+
+        response = self.importar_planilha(
+            [
+                self.headers_importacao,
+                ['1001', '2001', '3001', 'Duplicado'],
+                ['1002', '2002', '3002', 'Novo'],
+            ]
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'o orçamento 1001 já existe na base')
+        self.assertFalse(Orcamento.objects.filter(codigo='1002').exists())
+
+    def test_importacao_rejeita_orcamento_duplicado_na_planilha(self):
+        response = self.importar_planilha(
+            [
+                self.headers_importacao,
+                ['1001', '2001', '3001', 'Projeto A'],
+                ['1001', '2002', '3002', 'Projeto B'],
+            ]
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'o orçamento 1001 está duplicado na planilha')
+        self.assertFalse(Orcamento.objects.filter(codigo='1001').exists())
+
+    def test_importacao_rejeita_campos_numericos_invalidos(self):
+        response = self.importar_planilha(
+            [
+                self.headers_importacao,
+                ['ORC-1', 'CLI-1', 'CH-1', 'Inválido'],
+            ]
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Código Orçamento deve conter somente números')
+        self.assertContains(response, 'Código Cliente deve conter somente números')
+        self.assertContains(response, 'Número do Chamado deve conter somente números')
+        self.assertEqual(Orcamento.objects.count(), 0)
+
+    def test_lista_exibe_opcao_editar_orcamento(self):
+        orcamento = Orcamento.objects.create(codigo='1001', nome='Projeto')
+
+        response = self.client.get(reverse('horas:orcamentos'))
+
+        self.assertContains(response, reverse('horas:orcamento_editar', args=[orcamento.pk]))
+
+    def test_formulario_edicao_carrega_dados_do_orcamento(self):
+        orcamento = Orcamento.objects.create(
+            codigo='1001',
+            codigo_cliente='2001',
+            numero_chamado='3001',
+            nome='Projeto original',
+        )
+
+        response = self.client.get(reverse('horas:orcamento_editar', args=[orcamento.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'value="1001"', html=False)
+        self.assertContains(response, 'value="2001"', html=False)
+        self.assertContains(response, 'value="3001"', html=False)
+        self.assertContains(response, 'value="Projeto original"', html=False)
+
+    def test_edita_orcamento(self):
+        orcamento = Orcamento.objects.create(codigo='1001', nome='Projeto original')
+
+        response = self.client.post(
+            reverse('horas:orcamento_editar', args=[orcamento.pk]),
+            data={
+                'codigo': '1002',
+                'codigo_cliente': '2002',
+                'numero_chamado': '3002',
+                'nome': 'Projeto atualizado',
+            },
+        )
+
+        self.assertRedirects(response, reverse('horas:orcamentos'), fetch_redirect_response=False)
+        orcamento.refresh_from_db()
+        self.assertEqual(orcamento.codigo, '1002')
+        self.assertEqual(orcamento.codigo_cliente, '2002')
+        self.assertEqual(orcamento.numero_chamado, '3002')
+        self.assertEqual(orcamento.nome, 'Projeto atualizado')
+
+    def test_edicao_rejeita_codigo_duplicado(self):
+        orcamento = Orcamento.objects.create(codigo='1001', nome='Primeiro')
+        Orcamento.objects.create(codigo='1002', nome='Segundo')
+
+        response = self.client.post(
+            reverse('horas:orcamento_editar', args=[orcamento.pk]),
+            data={
+                'codigo': '1002',
+                'codigo_cliente': '2001',
+                'numero_chamado': '3001',
+                'nome': 'Duplicado',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        orcamento.refresh_from_db()
+        self.assertEqual(orcamento.codigo, '1001')
+        self.assertFormError(
+            response.context['form'],
+            'codigo',
+            'Já existe um orçamento com este código.',
+        )
+
+    def test_edicao_rejeita_letras_nos_campos_numericos(self):
+        orcamento = Orcamento.objects.create(codigo='1001', nome='Projeto')
+
+        response = self.client.post(
+            reverse('horas:orcamento_editar', args=[orcamento.pk]),
+            data={
+                'codigo': 'ORC-1',
+                'codigo_cliente': 'CLI-1',
+                'numero_chamado': 'CH-1',
+                'nome': 'Inválido',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFormError(response.context['form'], 'codigo', 'Informe somente números.')
+        self.assertFormError(response.context['form'], 'codigo_cliente', 'Informe somente números.')
+        self.assertFormError(response.context['form'], 'numero_chamado', 'Informe somente números.')
+
+
 class EstimativasViewTests(AuthenticatedTestCase):
     def criar_estimativa(self, *, user=None):
         estimativa = Estimativa.objects.create(
@@ -794,6 +1126,69 @@ class AgendaAtividadeModelTests(TestCase):
         with self.assertRaises(ValidationError):
             atividade.full_clean()
 
+    def test_rejeita_hora_final_menor_ou_igual_no_mesmo_dia(self):
+        atividade = AgendaAtividade(
+            user=self.user,
+            criado_por=self.gp,
+            cliente='Cliente',
+            orcamento=self.orcamento,
+            titulo='Atividade',
+            data_inicio=date(2026, 6, 10),
+            hora_inicio='10:00',
+            data_fim=date(2026, 6, 10),
+            hora_fim='09:00',
+            total_horas_maximo=Decimal('2'),
+        )
+
+        with self.assertRaises(ValidationError):
+            atividade.full_clean()
+
+    def test_permite_hora_final_menor_em_atividade_de_varios_dias(self):
+        atividade = AgendaAtividade(
+            user=self.user,
+            criado_por=self.gp,
+            cliente='Cliente',
+            orcamento=self.orcamento,
+            titulo='Atividade',
+            data_inicio=date(2026, 6, 10),
+            hora_inicio='18:00',
+            data_fim=date(2026, 6, 11),
+            hora_fim='09:00',
+            total_horas_maximo=Decimal('4'),
+        )
+
+        atividade.full_clean()
+
+    def test_rejeita_total_horas_maximo_igual_a_zero(self):
+        atividade = AgendaAtividade(
+            user=self.user,
+            criado_por=self.gp,
+            cliente='Cliente',
+            orcamento=self.orcamento,
+            titulo='Atividade',
+            data_inicio=date(2026, 6, 10),
+            hora_inicio='08:00',
+            data_fim=date(2026, 6, 10),
+            hora_fim='09:00',
+            total_horas_maximo=Decimal('0'),
+        )
+
+        with self.assertRaises(ValidationError):
+            atividade.full_clean()
+
+    def test_permite_atividade_legada_sem_horarios_e_total_maximo(self):
+        atividade = AgendaAtividade(
+            user=self.user,
+            criado_por=self.gp,
+            cliente='Cliente',
+            orcamento=self.orcamento,
+            titulo='Atividade legada',
+            data_inicio=date(2026, 6, 10),
+            data_fim=date(2026, 6, 10),
+        )
+
+        atividade.full_clean()
+
 
 class AgendaViewTests(TestCase):
     def setUp(self):
@@ -802,7 +1197,12 @@ class AgendaViewTests(TestCase):
         self.gp = User.objects.create_user(username='agenda-gp', password='senha-segura')
         self.gp.profile.is_gerente_projetos = True
         self.gp.profile.save(update_fields=['is_gerente_projetos'])
-        self.orcamento = Orcamento.objects.create(codigo='9002', nome='Agenda Orcamento')
+        self.orcamento = Orcamento.objects.create(
+            codigo='9002',
+            codigo_cliente='12345',
+            numero_chamado='67890',
+            nome='Agenda Orcamento',
+        )
 
     def criar_atividade(self, *, user, criado_por, titulo='Atividade', data_inicio=None, data_fim=None):
         return AgendaAtividade.objects.create(
@@ -815,7 +1215,10 @@ class AgendaViewTests(TestCase):
             titulo=titulo,
             descricao='Descricao da atividade',
             data_inicio=data_inicio or date(2026, 6, 10),
+            hora_inicio='08:00',
             data_fim=data_fim or date(2026, 6, 12),
+            hora_fim='17:00',
+            total_horas_maximo=Decimal('16'),
         )
 
     def test_usuario_comum_ve_apenas_propria_agenda(self):
@@ -864,7 +1267,10 @@ class AgendaViewTests(TestCase):
                 'titulo': 'Atividade delegada',
                 'descricao': 'Descricao',
                 'data_inicio': '2026-06-10',
+                'hora_inicio': '08:30',
                 'data_fim': '2026-06-12',
+                'hora_fim': '17:30',
+                'total_horas_maximo': '20:30',
             },
         )
 
@@ -872,6 +1278,11 @@ class AgendaViewTests(TestCase):
         atividade = AgendaAtividade.objects.get(titulo='Atividade delegada')
         self.assertEqual(atividade.user, self.user)
         self.assertEqual(atividade.criado_por, self.gp)
+        self.assertEqual(atividade.cliente, self.orcamento.codigo_cliente)
+        self.assertEqual(atividade.numero_chamado, self.orcamento.numero_chamado)
+        self.assertEqual(atividade.hora_inicio.isoformat(timespec='minutes'), '08:30')
+        self.assertEqual(atividade.hora_fim.isoformat(timespec='minutes'), '17:30')
+        self.assertEqual(atividade.total_horas_maximo, Decimal('20.5'))
 
     def test_usuario_comum_cria_atividade_na_propria_agenda(self):
         self.client.force_login(self.user)
@@ -886,7 +1297,10 @@ class AgendaViewTests(TestCase):
                 'titulo': 'Minha atividade',
                 'descricao': 'Descricao',
                 'data_inicio': '2026-06-10',
+                'hora_inicio': '09:00',
                 'data_fim': '2026-06-11',
+                'hora_fim': '18:00',
+                'total_horas_maximo': '08:00',
             },
         )
 
@@ -894,6 +1308,125 @@ class AgendaViewTests(TestCase):
         atividade = AgendaAtividade.objects.get(titulo='Minha atividade')
         self.assertEqual(atividade.user, self.user)
         self.assertEqual(atividade.criado_por, self.user)
+        self.assertEqual(atividade.cliente, self.orcamento.codigo_cliente)
+        self.assertEqual(atividade.numero_chamado, self.orcamento.numero_chamado)
+
+    def test_total_horas_maximo_aceita_digitos_sem_separador(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse('horas:agenda_nova'),
+            data={
+                'cliente': 'Cliente Agenda',
+                'orcamento': self.orcamento.pk,
+                'produto': 'ERP',
+                'titulo': 'Duracao compacta',
+                'data_inicio': '2026-06-10',
+                'hora_inicio': '09:00',
+                'data_fim': '2026-06-10',
+                'hora_fim': '17:00',
+                'total_horas_maximo': '0600',
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        atividade = AgendaAtividade.objects.get(titulo='Duracao compacta')
+        self.assertEqual(atividade.total_horas_maximo, Decimal('6'))
+
+    def test_formulario_posiciona_orcamento_antes_do_cliente_e_compacta_horarios(self):
+        self.client.force_login(self.gp)
+
+        response = self.client.get(reverse('horas:agenda_nova'))
+        content = response.content.decode()
+
+        self.assertLess(content.index('name="user"'), content.index('name="orcamento"'))
+        self.assertLess(content.index('name="orcamento"'), content.index('name="cliente"'))
+        self.assertContains(response, 'class="agenda-schedule-row"', html=False)
+        self.assertContains(response, 'maskDurationInput', html=False)
+
+    def test_nova_atividade_bloqueia_e_preenche_cliente_e_chamado_pelo_orcamento(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('horas:agenda_nova'))
+
+        self.assertContains(response, 'name="cliente" maxlength="200" readonly="readonly"', html=False)
+        self.assertContains(response, 'name="numero_chamado" maxlength="100" readonly="readonly"', html=False)
+        self.assertContains(response, 'data-cliente="12345"', html=False)
+        self.assertContains(response, 'data-chamado="67890"', html=False)
+        self.assertContains(response, 'fillBudgetData', html=False)
+
+    def test_nova_atividade_ignora_cliente_e_chamado_enviados_manualmente(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse('horas:agenda_nova'),
+            data={
+                'cliente': '99999',
+                'numero_chamado': '99999',
+                'orcamento': self.orcamento.pk,
+                'produto': 'ERP',
+                'titulo': 'Dados protegidos',
+                'data_inicio': '2026-06-10',
+                'hora_inicio': '09:00',
+                'data_fim': '2026-06-10',
+                'hora_fim': '17:00',
+                'total_horas_maximo': '08:00',
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        atividade = AgendaAtividade.objects.get(titulo='Dados protegidos')
+        self.assertEqual(atividade.cliente, '12345')
+        self.assertEqual(atividade.numero_chamado, '67890')
+
+    def test_edicao_mantem_cliente_e_chamado_liberados(self):
+        atividade = self.criar_atividade(user=self.user, criado_por=self.user)
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('horas:agenda_editar', args=[atividade.pk]))
+
+        self.assertNotContains(response, 'name="cliente" maxlength="200" readonly="readonly"', html=False)
+        self.assertNotContains(response, 'name="numero_chamado" maxlength="100" readonly="readonly"', html=False)
+
+    def test_formulario_produto_exibe_apenas_erp_e_hcm(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('horas:agenda_nova'))
+        produto = response.context['form'].fields['produto']
+
+        self.assertEqual(list(produto.choices), [('', '— selecione —'), ('ERP', 'ERP'), ('HCM', 'HCM')])
+        self.assertTrue(produto.required)
+
+    def test_rejeita_produto_fora_da_lista(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse('horas:agenda_nova'),
+            data={
+                'cliente': 'Cliente Agenda',
+                'orcamento': self.orcamento.pk,
+                'produto': 'Outro',
+                'titulo': 'Produto invalido',
+                'data_inicio': '2026-06-10',
+                'hora_inicio': '09:00',
+                'data_fim': '2026-06-10',
+                'hora_fim': '17:00',
+                'total_horas_maximo': '08:00',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(AgendaAtividade.objects.filter(titulo='Produto invalido').exists())
+
+    def test_formulario_edicao_preserva_produto_legado(self):
+        atividade = self.criar_atividade(user=self.user, criado_por=self.user)
+        atividade.produto = 'Produto legado'
+        atividade.save(update_fields=['produto'])
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('horas:agenda_editar', args=[atividade.pk]))
+
+        self.assertContains(response, '<option value="Produto legado" selected>Produto legado</option>', html=True)
 
     def test_usuario_comum_nao_edita_atividade_criada_por_gerente(self):
         atividade = self.criar_atividade(user=self.user, criado_por=self.gp, titulo='Delegada')
@@ -918,13 +1451,102 @@ class AgendaViewTests(TestCase):
                 'titulo': 'Delegada ajustada',
                 'descricao': atividade.descricao,
                 'data_inicio': atividade.data_inicio.isoformat(),
+                'hora_inicio': '10:00',
                 'data_fim': atividade.data_fim.isoformat(),
+                'hora_fim': '19:00',
+                'total_horas_maximo': '24:30',
             },
         )
 
         self.assertEqual(response.status_code, 302)
         atividade.refresh_from_db()
         self.assertEqual(atividade.titulo, 'Delegada ajustada')
+        self.assertEqual(atividade.hora_inicio.isoformat(timespec='minutes'), '10:00')
+        self.assertEqual(atividade.total_horas_maximo, Decimal('24.5'))
+
+    def test_rejeita_nova_atividade_sem_horarios_e_total_maximo(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse('horas:agenda_nova'),
+            data={
+                'cliente': 'Cliente Agenda',
+                'orcamento': self.orcamento.pk,
+                'titulo': 'Sem planejamento',
+                'data_inicio': '2026-06-10',
+                'data_fim': '2026-06-10',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(AgendaAtividade.objects.filter(titulo='Sem planejamento').exists())
+        self.assertFormError(response.context['form'], 'hora_inicio', 'Este campo é obrigatório.')
+        self.assertFormError(response.context['form'], 'hora_fim', 'Este campo é obrigatório.')
+        self.assertFormError(response.context['form'], 'total_horas_maximo', 'Este campo é obrigatório.')
+
+    def test_calendario_exibe_horarios_e_total_maximo(self):
+        self.criar_atividade(user=self.user, criado_por=self.user, titulo='Com planejamento')
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('horas:agenda'), {'mes': '2026-06'})
+
+        self.assertContains(response, '08:00 - 17:00')
+        self.assertContains(response, 'Máx. 16:00')
+
+    def test_card_agenda_exibe_botao_apontar_com_data_e_orcamento(self):
+        atividade = self.criar_atividade(
+            user=self.user,
+            criado_por=self.user,
+            titulo='Apontar atividade',
+            data_inicio=date(2026, 6, 10),
+            data_fim=date(2026, 6, 12),
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('horas:agenda'), {'mes': '2026-06'})
+
+        for data_card in ('2026-06-10', '2026-06-11', '2026-06-12'):
+            self.assertContains(
+                response,
+                f'{reverse("horas:timer")}?data={data_card}&orcamento={atividade.orcamento_id}',
+            )
+        self.assertContains(response, '>Apontar</a>', count=3, html=False)
+
+    def test_card_agenda_exibe_botao_editar_quando_usuario_pode_gerenciar(self):
+        atividade = self.criar_atividade(user=self.user, criado_por=self.user, titulo='Editável')
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('horas:agenda'), {'mes': '2026-06'})
+
+        self.assertContains(response, reverse('horas:agenda_editar', args=[atividade.pk]))
+        self.assertContains(response, '>Editar</a>', count=3, html=False)
+
+    def test_card_agenda_nao_exibe_botao_editar_sem_permissao(self):
+        atividade = self.criar_atividade(user=self.user, criado_por=self.gp, titulo='Delegada')
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('horas:agenda'), {'mes': '2026-06'})
+
+        self.assertNotContains(response, reverse('horas:agenda_editar', args=[atividade.pk]))
+
+    def test_calendario_ordena_atividades_por_hora_inicial(self):
+        tarde = self.criar_atividade(user=self.user, criado_por=self.user, titulo='Atividade tarde')
+        tarde.hora_inicio = '14:00'
+        tarde.save(update_fields=['hora_inicio'])
+        manha = self.criar_atividade(user=self.user, criado_por=self.user, titulo='Atividade manha')
+        manha.hora_inicio = '08:00'
+        manha.save(update_fields=['hora_inicio'])
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('horas:agenda'), {'mes': '2026-06'})
+        day_items = next(
+            day['atividades']
+            for week in response.context['agenda_weeks']
+            for day in week
+            if day['date'] == date(2026, 6, 10)
+        )
+
+        self.assertEqual([item.titulo for item in day_items], ['Atividade manha', 'Atividade tarde'])
 
     def test_calendario_mostra_atividade_em_todos_os_dias_do_intervalo(self):
         self.criar_atividade(

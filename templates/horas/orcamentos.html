@@ -8,12 +8,24 @@
   <form method="post" class="add-orc-card" style="margin-bottom:24px;">
     {% csrf_token %}
     <h3>Adicionar orçamento</h3>
-    <div class="form-row">
+    <div class="form-row triple">
       <div class="field">
         <label for="{{ form.codigo.id_for_label }}">Código</label>
         {{ form.codigo }}
         {% for error in form.codigo.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
       </div>
+      <div class="field">
+        <label for="{{ form.codigo_cliente.id_for_label }}">Código do Cliente</label>
+        {{ form.codigo_cliente }}
+        {% for error in form.codigo_cliente.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
+        <label for="{{ form.numero_chamado.id_for_label }}">Número do Chamado</label>
+        {{ form.numero_chamado }}
+        {% for error in form.numero_chamado.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+    </div>
+    <div class="form-row single">
       <div class="field">
         <label for="{{ form.nome.id_for_label }}">Nome / Descrição</label>
         {{ form.nome }}
@@ -23,25 +35,92 @@
     <button class="btn btn-primary btn-sm" type="submit">Adicionar</button>
   </form>
 
-  <div class="orc-grid">
-    {% for orcamento in orcamentos %}
-      <div class="orc-card">
-        <div>
-          <div class="orc-code">{{ orcamento.codigo }}</div>
-          <div class="orc-name">
-            {% if orcamento.nome %}{{ orcamento.nome }}{% else %}<em style="opacity:.4">sem nome</em>{% endif %}
-            {% if not orcamento.ativo %}<span class="muted-inline"> • inativo</span>{% endif %}
-          </div>
-        </div>
-        <div class="orc-actions">
-          <form method="post" action="{% url 'horas:orcamento_remover' orcamento.pk %}">
-            {% csrf_token %}
-            <button class="btn-del" type="submit">✕</button>
-          </form>
-        </div>
+  <form method="post" enctype="multipart/form-data" class="add-orc-card" style="margin-bottom:24px;">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="importar">
+    <h3>Importar orçamentos</h3>
+    <div class="empty-inline" style="margin-bottom:12px;">
+      A primeira linha deve conter, nesta ordem: orcamento, cliente, chamado, descricao.
+    </div>
+    <div class="form-row single">
+      <div class="field">
+        <label for="{{ import_form.arquivo.id_for_label }}">Planilha Excel</label>
+        {{ import_form.arquivo }}
+        {% for error in import_form.arquivo.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
       </div>
-    {% empty %}
-      <div class="empty-inline">Nenhum orçamento cadastrado.</div>
-    {% endfor %}
+    </div>
+    {% if import_errors %}
+      <div class="field-error" style="margin-bottom:12px;">
+        {% for error in import_errors %}<div>{{ error }}</div>{% endfor %}
+      </div>
+    {% endif %}
+    <button class="btn btn-primary btn-sm" type="submit">Importar orçamentos</button>
+  </form>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Orçamento</th>
+          <th>Código do Cliente</th>
+          <th>Número do Chamado</th>
+          <th>Nome / Descrição</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for orcamento in orcamentos %}
+          <tr>
+            <td class="mono accent-text">{{ orcamento.codigo }}</td>
+            <td class="mono">{{ orcamento.codigo_cliente|default:'—' }}</td>
+            <td class="mono">{{ orcamento.numero_chamado|default:'—' }}</td>
+            <td>{{ orcamento.nome|default:'—' }}</td>
+            <td>
+              {% if orcamento.ativo %}
+                <span class="status-badge status-active">Ativo</span>
+              {% else %}
+                <span class="status-badge status-inactive">Inativo</span>
+              {% endif %}
+            </td>
+            <td class="actions-cell">
+              <a class="btn-inline" href="{% url 'horas:orcamento_editar' orcamento.pk %}">Editar</a>
+              <form method="post" action="{% url 'horas:orcamento_remover' orcamento.pk %}">
+                {% csrf_token %}
+                <button class="btn-del" type="submit">×</button>
+              </form>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="6"><div class="empty-inline">Nenhum orçamento cadastrado.</div></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    document.querySelectorAll('.numeric-only').forEach((field) => {
+      field.addEventListener('keydown', (event) => {
+        if (
+          event.ctrlKey
+          || event.metaKey
+          || event.altKey
+          || ['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'Tab'].includes(event.key)
+        ) {
+          return;
+        }
+        if (!/^\d$/.test(event.key)) {
+          event.preventDefault();
+        }
+      });
+
+      field.addEventListener('input', () => {
+        field.value = field.value.replace(/\D/g, '');
+      });
+    });
+  </script>
 {% endblock %}

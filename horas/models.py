@@ -104,6 +104,10 @@ class UserProfile(models.Model):
         related_name='profile',
     )
     is_gerente_projetos = models.BooleanField(default=False)
+    must_change_password = models.BooleanField(
+        'Exigir troca de senha no proximo login',
+        default=False,
+    )
 
     def __str__(self):
         role = 'GP' if self.is_gerente_projetos else 'Usuario'

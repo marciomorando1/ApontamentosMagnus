@@ -13,8 +13,10 @@ from xml.etree import ElementTree as ET
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model
+from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.auth.views import LoginView
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import ProtectedError, Q
@@ -35,6 +37,7 @@ from .forms import (
     OrcamentoForm,
     OrcamentoImportForm,
     RegistroForm,
+    RequiredPasswordChangeForm,
     SolicitacaoHorasForm,
 )
 from .models import (
@@ -662,6 +665,39 @@ class SidebarContextMixin:
 
 class AuthenticatedViewMixin(LoginRequiredMixin):
     login_url = 'login'
+
+
+class RequiredPasswordLoginView(LoginView):
+    def get_success_url(self):
+        profile, _ = UserProfile.objects.get_or_create(user=self.request.user)
+        if profile.must_change_password:
+            return reverse('password_change_required')
+        return super().get_success_url()
+
+
+class RequiredPasswordChangeView(AuthenticatedViewMixin, TemplateView):
+    template_name = 'registration/required_password_change.html'
+
+    def get_form(self):
+        return RequiredPasswordChangeForm(self.request.user, self.request.POST or None)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['form'] = kwargs.get('form') or self.get_form()
+        return context
+
+    def post(self, request, *args, **kwargs):
+        form = self.get_form()
+        if not form.is_valid():
+            return self.render_to_response(self.get_context_data(form=form))
+
+        user = form.save()
+        profile, _ = UserProfile.objects.get_or_create(user=user)
+        profile.must_change_password = False
+        profile.save(update_fields=['must_change_password'])
+        update_session_auth_hash(request, user)
+        messages.success(request, 'Senha alterada com sucesso.')
+        return redirect(settings.LOGIN_REDIRECT_URL)
 
 
 class GerenteProjetosRequiredMixin:

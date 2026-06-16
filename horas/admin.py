@@ -13,6 +13,7 @@ class UserProfileInline(admin.StackedInline):
     can_delete = False
     extra = 0
     fk_name = 'user'
+    fields = ('is_gerente_projetos', 'must_change_password')
 
 
 class UserAdmin(DjangoUserAdmin):
@@ -97,8 +98,8 @@ class SolicitacaoHorasAdmin(admin.ModelAdmin):
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
-    list_display = ('user', 'is_gerente_projetos')
-    list_filter = ('is_gerente_projetos',)
+    list_display = ('user', 'is_gerente_projetos', 'must_change_password')
+    list_filter = ('is_gerente_projetos', 'must_change_password')
     search_fields = ('user__username',)
 
 

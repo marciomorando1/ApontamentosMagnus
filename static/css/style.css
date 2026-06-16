@@ -151,6 +151,9 @@ nav { padding: 12px 0; flex: 1; }
 .field textarea { resize: vertical; min-height: 70px; }
 .field select option { background: var(--surface2); }
 .field-error { font-size: 11px; color: var(--danger); margin-top: 5px; }
+.field-help { margin-top: 6px; color: var(--muted); font-size: 11px; }
+.field-help ul { padding-left: 16px; }
+.field-help li { margin-top: 3px; }
 .mono-accent { color: var(--accent); font-family: var(--mono) !important; }
 .btn-row { display: flex; gap: 10px; margin-top: 20px; align-items: center; flex-wrap: wrap; }
 .btn {

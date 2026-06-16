@@ -3,6 +3,7 @@ from decimal import Decimal, InvalidOperation
 
 from django import forms
 from django.contrib.auth import get_user_model
+from django.contrib.auth.forms import PasswordChangeForm
 from django.forms import inlineformset_factory
 from django.db.models import Q
 
@@ -19,6 +20,24 @@ from .models import (
 
 
 User = get_user_model()
+
+
+class RequiredPasswordChangeForm(PasswordChangeForm):
+    old_password = forms.CharField(
+        label='Senha atual',
+        strip=False,
+        widget=forms.PasswordInput(attrs={'autocomplete': 'current-password'}),
+    )
+    new_password1 = forms.CharField(
+        label='Nova senha',
+        strip=False,
+        widget=forms.PasswordInput(attrs={'autocomplete': 'new-password'}),
+    )
+    new_password2 = forms.CharField(
+        label='Confirme a nova senha',
+        strip=False,
+        widget=forms.PasswordInput(attrs={'autocomplete': 'new-password'}),
+    )
 
 
 MODULO_PROCESSO_CHOICES = [

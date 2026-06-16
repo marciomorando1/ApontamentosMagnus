@@ -720,6 +720,95 @@ class AuthenticationFlowTests(TestCase):
 
         self.assertRedirects(response, f"{reverse('login')}?next={reverse('horas:timer')}")
 
+    def test_usuario_sem_troca_obrigatoria_acessa_sistema_normalmente(self):
+        User.objects.create_user(username='sem-troca', password='SenhaForte123!')
+
+        response = self.client.post(
+            reverse('login'),
+            data={'username': 'sem-troca', 'password': 'SenhaForte123!'},
+        )
+
+        self.assertRedirects(response, reverse('horas:timer'), fetch_redirect_response=False)
+
+    def test_usuario_com_troca_obrigatoria_redireciona_apos_login(self):
+        user = User.objects.create_user(username='com-troca', password='SenhaForte123!')
+        user.profile.must_change_password = True
+        user.profile.save(update_fields=['must_change_password'])
+
+        response = self.client.post(
+            reverse('login'),
+            data={'username': 'com-troca', 'password': 'SenhaForte123!'},
+        )
+
+        self.assertRedirects(response, reverse('password_change_required'), fetch_redirect_response=False)
+
+    def test_usuario_com_troca_obrigatoria_nao_acessa_telas_do_sistema(self):
+        user = User.objects.create_user(username='bloqueado', password='SenhaForte123!')
+        user.profile.must_change_password = True
+        user.profile.save(update_fields=['must_change_password'])
+        self.client.force_login(user)
+
+        response = self.client.get(reverse('horas:agenda'))
+
+        self.assertRedirects(response, reverse('password_change_required'), fetch_redirect_response=False)
+
+    def test_troca_com_senha_atual_invalida_mantem_bloqueio(self):
+        user = User.objects.create_user(username='senha-invalida', password='SenhaForte123!')
+        user.profile.must_change_password = True
+        user.profile.save(update_fields=['must_change_password'])
+        self.client.force_login(user)
+
+        response = self.client.post(
+            reverse('password_change_required'),
+            data={
+                'old_password': 'errada',
+                'new_password1': 'NovaSenhaForte123!',
+                'new_password2': 'NovaSenhaForte123!',
+            },
+        )
+
+        user.profile.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(user.profile.must_change_password)
+        self.assertContains(response, 'Senha atual')
+
+    def test_troca_valida_altera_senha_desmarca_flag_e_mantem_sessao(self):
+        user = User.objects.create_user(username='troca-valida', password='SenhaForte123!')
+        user.profile.must_change_password = True
+        user.profile.save(update_fields=['must_change_password'])
+        self.client.force_login(user)
+
+        response = self.client.post(
+            reverse('password_change_required'),
+            data={
+                'old_password': 'SenhaForte123!',
+                'new_password1': 'NovaSenhaForte123!',
+                'new_password2': 'NovaSenhaForte123!',
+            },
+        )
+
+        user.refresh_from_db()
+        user.profile.refresh_from_db()
+        self.assertRedirects(response, reverse('horas:timer'), fetch_redirect_response=False)
+        self.assertFalse(user.profile.must_change_password)
+        self.assertTrue(user.check_password('NovaSenhaForte123!'))
+        self.assertFalse(self.client.login(username='troca-valida', password='SenhaForte123!'))
+        self.assertTrue(self.client.login(username='troca-valida', password='NovaSenhaForte123!'))
+
+    def test_admin_exibe_flag_de_troca_obrigatoria(self):
+        admin = User.objects.create_superuser(
+            username='admin-senhas',
+            password='SenhaForte123!',
+            email='admin@example.com',
+        )
+        user = User.objects.create_user(username='usuario-admin', password='SenhaForte123!')
+        self.client.force_login(admin)
+
+        response = self.client.get(reverse('admin:auth_user_change', args=[user.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'must_change_password')
+
 
 class OrcamentosViewTests(AuthenticatedTestCase):
     headers_importacao = [
@@ -1700,6 +1789,7 @@ class UserProfileTests(TestCase):
 
         self.assertTrue(UserProfile.objects.filter(user=user).exists())
         self.assertFalse(user.profile.is_gerente_projetos)
+        self.assertFalse(user.profile.must_change_password)
 
 
 class AgendaAtividadeModelTests(TestCase):

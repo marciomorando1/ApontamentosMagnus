@@ -29,9 +29,21 @@
         <a class="nav-item {% if section == 'resumo' %}active{% endif %}" href="{% url 'horas:resumo' %}">
           <span class="nav-icon">📊</span> Resumo
         </a>
-        <a class="nav-item {% if section == 'orcamentos' %}active{% endif %}" href="{% url 'horas:orcamentos' %}">
-          <span class="nav-icon">🗂</span> Orçamentos
+        <a class="nav-item {% if section == 'solicitacoes_horas' %}active{% endif %}" href="{% url 'horas:solicitacoes_horas' %}">
+          <span class="nav-icon">H+</span> Solicitar Horas Orçamento
         </a>
+        {% if is_gp %}
+          <a class="nav-item {% if section == 'solicitacoes_horas_pendentes' %}active{% endif %}{% if pendencias_aprovacao_count %} has-pending{% endif %}" href="{% url 'horas:solicitacoes_horas_pendentes' %}">
+            <span class="nav-icon">!</span>
+            <span class="nav-label">Pendências para Aprovação</span>
+            {% if pendencias_aprovacao_count %}
+              <span class="nav-pending-badge" title="{{ pendencias_aprovacao_count }} pendência{{ pendencias_aprovacao_count|pluralize }} aguardando aprovação">{{ pendencias_aprovacao_count }}</span>
+            {% endif %}
+          </a>
+          <a class="nav-item {% if section == 'orcamentos' %}active{% endif %}" href="{% url 'horas:orcamentos' %}">
+            <span class="nav-icon">🗂</span> Orçamentos
+          </a>
+        {% endif %}
         <a class="nav-item {% if section == 'estimativas' %}active{% endif %}" href="{% url 'horas:estimativas' %}">
           <span class="nav-icon">E</span> Estimativas
         </a>
@@ -75,6 +87,21 @@
       setTimeout(() => {
         toast.classList.remove('show');
       }, 2800 + (index * 200));
+    });
+
+    function maskCompactDuration(input) {
+      const digits = input.value.replace(/\D/g, '').slice(0, 6);
+      input.value = digits.length > 2
+        ? `${digits.slice(0, -2)}:${digits.slice(-2)}`
+        : digits;
+
+      const minutes = digits.length > 2 ? Number(digits.slice(-2)) : 0;
+      input.setCustomValidity(minutes > 59 ? 'Informe minutos entre 00 e 59.' : '');
+    }
+
+    document.querySelectorAll('[data-compact-duration="true"]').forEach((field) => {
+      field.addEventListener('input', () => maskCompactDuration(field));
+      field.addEventListener('paste', () => setTimeout(() => maskCompactDuration(field)));
     });
   </script>
   {% block scripts %}{% endblock %}

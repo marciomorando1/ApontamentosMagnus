@@ -30,11 +30,34 @@
         {% for error in form.numero_chamado.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
       </div>
     </div>
-    <div class="form-row single">
+    <div class="form-row">
+      <div class="field">
+        <label for="orcamento-horas-apontadas">Quantidade de Horas Apontadas</label>
+        <input id="orcamento-horas-apontadas" type="text" value="{{ orcamento.horas_apontadas_formatadas }}" readonly class="mono-accent">
+      </div>
+      <div class="field">
+        <label for="orcamento-horas-adicionais">Horas Adicionais</label>
+        <input id="orcamento-horas-adicionais" type="text" value="{{ orcamento.horas_adicionais_formatadas }}" readonly class="mono-accent">
+      </div>
+      <div class="field">
+        <label for="orcamento-horas-disponiveis">Quantidade de Horas Disponíveis</label>
+        <input id="orcamento-horas-disponiveis" type="text" value="{{ orcamento.horas_disponiveis_formatadas }}" readonly class="mono-accent">
+      </div>
+    </div>
+    <div class="form-row triple">
       <div class="field">
         <label for="{{ form.nome.id_for_label }}">Nome / Descrição</label>
         {{ form.nome }}
         {% for error in form.nome.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
+        <label for="{{ form.horas.id_for_label }}">Quantidade de Horas (HH:MM)</label>
+        {{ form.horas }}
+        {% for error in form.horas.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
+        <label for="orcamento-responsavel">Responsável</label>
+        <input id="orcamento-responsavel" type="text" value="{{ orcamento.responsavel_nome }}" disabled>
       </div>
     </div>
     <div class="btn-row">

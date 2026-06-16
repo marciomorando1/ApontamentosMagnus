@@ -4,7 +4,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
-from django.db import models
+from django.db import models, transaction
 
 
 somente_numeros_validator = RegexValidator(
@@ -33,10 +33,20 @@ class Fase(models.Model):
 
 
 class Orcamento(models.Model):
+    responsavel = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='orcamentos',
+        null=True,
+        blank=True,
+    )
     codigo = models.CharField(max_length=20, unique=True, validators=[somente_numeros_validator])
     codigo_cliente = models.CharField(max_length=50, blank=True, validators=[somente_numeros_validator])
     numero_chamado = models.CharField(max_length=100, blank=True, validators=[somente_numeros_validator])
     nome = models.CharField(max_length=200, blank=True)
+    horas = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    horas_adicionais = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    horas_apontadas = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     ativo = models.BooleanField(default=True)
     criado_em = models.DateTimeField(auto_now_add=True)
 
@@ -45,6 +55,46 @@ class Orcamento(models.Model):
 
     def __str__(self):
         return f'{self.codigo} - {self.nome}' if self.nome else self.codigo
+
+    @property
+    def horas_formatadas(self):
+        return format_decimal_hours(self.horas)
+
+    @property
+    def horas_apontadas_formatadas(self):
+        return format_decimal_hours(self.horas_apontadas)
+
+    @property
+    def horas_adicionais_formatadas(self):
+        return format_decimal_hours(self.horas_adicionais)
+
+    @property
+    def total_horas_disponibilizadas(self):
+        return self.horas + self.horas_adicionais
+
+    @property
+    def total_horas_disponibilizadas_formatadas(self):
+        return format_decimal_hours(self.total_horas_disponibilizadas)
+
+    @property
+    def horas_disponiveis(self):
+        return max(Decimal('0'), self.total_horas_disponibilizadas - self.horas_apontadas)
+
+    @property
+    def horas_disponiveis_formatadas(self):
+        return format_decimal_hours(self.horas_disponiveis)
+
+    @property
+    def responsavel_nome(self):
+        if not self.responsavel:
+            return ''
+        return self.responsavel.get_full_name() or self.responsavel.username
+
+    def clean(self):
+        if self.total_horas_disponibilizadas < self.horas_apontadas:
+            raise ValidationError(
+                {'horas': 'A quantidade de horas não pode ser menor que as horas já apontadas.'}
+            )
 
 
 class UserProfile(models.Model):
@@ -58,6 +108,59 @@ class UserProfile(models.Model):
     def __str__(self):
         role = 'GP' if self.is_gerente_projetos else 'Usuario'
         return f'{self.user} - {role}'
+
+
+class SolicitacaoHoras(models.Model):
+    SITUACAO_AGUARDANDO = 'AGUARDANDO'
+    SITUACAO_APROVADO = 'APROVADO'
+    SITUACAO_REPROVADO = 'REPROVADO'
+    SITUACAO_CHOICES = (
+        (SITUACAO_AGUARDANDO, 'Aguardando Aprovação'),
+        (SITUACAO_APROVADO, 'Aprovado'),
+        (SITUACAO_REPROVADO, 'Reprovado'),
+    )
+
+    solicitante = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='solicitacoes_horas',
+    )
+    orcamento = models.ForeignKey(
+        Orcamento,
+        on_delete=models.PROTECT,
+        related_name='solicitacoes_horas',
+    )
+    quantidade_horas = models.DecimalField(max_digits=8, decimal_places=2)
+    motivo = models.TextField()
+    situacao = models.CharField(
+        max_length=10,
+        choices=SITUACAO_CHOICES,
+        default=SITUACAO_AGUARDANDO,
+    )
+    motivo_reprovacao = models.TextField(blank=True)
+    decidido_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='solicitacoes_horas_decididas',
+        null=True,
+        blank=True,
+    )
+    criado_em = models.DateTimeField(auto_now_add=True)
+    decidido_em = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-criado_em', '-pk']
+
+    @property
+    def numero_solicitacao(self):
+        return self.pk
+
+    @property
+    def quantidade_horas_formatadas(self):
+        return format_decimal_hours(self.quantidade_horas)
+
+    def __str__(self):
+        return f'Solicitação {self.pk} - {self.orcamento}'
 
 
 class Estimativa(models.Model):
@@ -239,14 +342,29 @@ class Registro(models.Model):
     class Meta:
         ordering = ['-data', '-hora_inicio', '-criado_em']
 
+    @staticmethod
+    def _normalizar_hora(value):
+        if isinstance(value, str):
+            return datetime.strptime(value, '%H:%M').time()
+        return value
+
     @property
     def total_horas(self):
-        inicio = datetime.combine(datetime.min, self.hora_inicio)
-        fim = datetime.combine(datetime.min, self.hora_fim)
+        inicio = datetime.combine(datetime.min, self._normalizar_hora(self.hora_inicio))
+        fim = datetime.combine(datetime.min, self._normalizar_hora(self.hora_fim))
         delta = fim - inicio
         if delta.days < 0:
             delta += timedelta(days=1)
         return delta.total_seconds() / 3600
+
+    @property
+    def total_horas_decimal(self):
+        inicio = datetime.combine(datetime.min, self._normalizar_hora(self.hora_inicio))
+        fim = datetime.combine(datetime.min, self._normalizar_hora(self.hora_fim))
+        delta = fim - inicio
+        if delta.days < 0:
+            delta += timedelta(days=1)
+        return (Decimal(delta.total_seconds()) / Decimal('3600')).quantize(Decimal('0.01'))
 
     @property
     def total_formatado(self):
@@ -266,6 +384,56 @@ class Registro(models.Model):
             errors['fase'] = 'Selecione uma fase.'
         if errors:
             raise ValidationError(errors)
+
+    @staticmethod
+    def _limite_orcamento_message(orcamento):
+        responsavel = orcamento.responsavel_nome or 'gerente de projetos responsável'
+        return (
+            'A quantidade de horas apontada excede as horas disponíveis deste orçamento. '
+            f'Entre em contato com {responsavel}.'
+        )
+
+    def save(self, *args, **kwargs):
+        with transaction.atomic():
+            anterior = None
+            if self.pk:
+                anterior = Registro.objects.select_for_update().filter(pk=self.pk).first()
+
+            orcamento_ids = {self.orcamento_id}
+            if anterior:
+                orcamento_ids.add(anterior.orcamento_id)
+            orcamentos = {
+                item.pk: item
+                for item in Orcamento.objects.select_for_update().filter(pk__in=sorted(orcamento_ids))
+            }
+
+            if anterior:
+                orcamento_anterior = orcamentos[anterior.orcamento_id]
+                orcamento_anterior.horas_apontadas = max(
+                    Decimal('0'),
+                    orcamento_anterior.horas_apontadas - anterior.total_horas_decimal,
+                )
+
+            orcamento_atual = orcamentos[self.orcamento_id]
+            novo_total = orcamento_atual.horas_apontadas + self.total_horas_decimal
+            if novo_total > orcamento_atual.total_horas_disponibilizadas:
+                raise ValidationError({'orcamento': self._limite_orcamento_message(orcamento_atual)})
+
+            if anterior and anterior.orcamento_id != self.orcamento_id:
+                orcamento_anterior.save(update_fields=['horas_apontadas'])
+            orcamento_atual.horas_apontadas = novo_total
+            orcamento_atual.save(update_fields=['horas_apontadas'])
+            super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        with transaction.atomic():
+            orcamento = Orcamento.objects.select_for_update().get(pk=self.orcamento_id)
+            orcamento.horas_apontadas = max(
+                Decimal('0'),
+                orcamento.horas_apontadas - self.total_horas_decimal,
+            )
+            orcamento.save(update_fields=['horas_apontadas'])
+            return super().delete(*args, **kwargs)
 
     def __str__(self):
         return f'{self.user} - {self.data} - {self.hora_inicio} às {self.hora_fim}'

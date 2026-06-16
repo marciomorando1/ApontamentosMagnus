@@ -7,7 +7,7 @@
 
   <form method="post" class="timer-card">
     {% csrf_token %}
-    <div class="form-row">
+    <div class="form-row triple">
       <div class="field">
         <label for="{{ form.data.id_for_label }}">Data</label>
         {{ form.data }}
@@ -17,6 +17,10 @@
         <label for="{{ form.orcamento.id_for_label }}">Orçamento</label>
         {{ form.orcamento }}
         {% for error in form.orcamento.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
+        <label for="orcamento-horas-disponiveis">Quantidade de Horas Disponíveis</label>
+        <input type="text" id="orcamento-horas-disponiveis" placeholder="—" readonly class="mono-accent">
       </div>
     </div>
 
@@ -65,6 +69,8 @@
     const startField = document.getElementById('{{ form.hora_inicio.id_for_label }}');
     const endField = document.getElementById('{{ form.hora_fim.id_for_label }}');
     const totalField = document.getElementById('f-total');
+    const budgetField = document.getElementById('{{ form.orcamento.id_for_label }}');
+    const budgetAvailableHoursField = document.getElementById('orcamento-horas-disponiveis');
 
     function diffHours(start, end) {
       if (!start || !end) return '';
@@ -81,8 +87,15 @@
       totalField.value = diffHours(startField.value, endField.value);
     }
 
+    function updateBudgetHours() {
+      const selectedOption = budgetField.options[budgetField.selectedIndex];
+      budgetAvailableHoursField.value = selectedOption?.dataset.horasDisponiveis || '';
+    }
+
     startField.addEventListener('change', updateTotal);
     endField.addEventListener('change', updateTotal);
+    budgetField.addEventListener('change', updateBudgetHours);
     updateTotal();
+    updateBudgetHours();
   </script>
 {% endblock %}

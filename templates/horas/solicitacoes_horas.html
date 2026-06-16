@@ -1,0 +1,72 @@
+{% extends 'base.html' %}
+
+{% block title %}Solicitar Horas Orçamento | Apontamento de Horas{% endblock %}
+
+{% block content %}
+  <div class="page-title">Solicitar Horas Orçamento</div>
+
+  <form method="post" class="add-orc-card" style="margin-bottom:24px;">
+    {% csrf_token %}
+    <h3>Nova solicitação</h3>
+    <div class="form-row">
+      <div class="field">
+        <label>Número da Solicitação</label>
+        <input type="text" value="Preenchido automaticamente" readonly>
+      </div>
+      <div class="field">
+        <label for="{{ form.orcamento.id_for_label }}">Número do Orçamento</label>
+        {{ form.orcamento }}
+        {% for error in form.orcamento.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+    </div>
+    <div class="form-row single">
+      <div class="field">
+        <label for="{{ form.quantidade_horas.id_for_label }}">Quantidade de Horas</label>
+        {{ form.quantidade_horas }}
+        {% for error in form.quantidade_horas.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+    </div>
+    <div class="form-row single">
+      <div class="field">
+        <label for="{{ form.motivo.id_for_label }}">Motivo da Solicitação</label>
+        {{ form.motivo }}
+        {% for error in form.motivo.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+    </div>
+    <button class="btn btn-primary" type="submit">Enviar solicitação</button>
+  </form>
+
+  <div class="section-label" style="margin-bottom:10px;">Minhas solicitações</div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Número</th>
+          <th>Orçamento</th>
+          <th>Horas</th>
+          <th>Motivo</th>
+          <th>Situação</th>
+          <th>Motivo da Reprovação</th>
+          <th>Responsável</th>
+          <th>Enviada em</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for solicitacao in solicitacoes %}
+          <tr>
+            <td class="mono accent-text">{{ solicitacao.numero_solicitacao }}</td>
+            <td><span class="badge-code">{{ solicitacao.orcamento.codigo }}</span></td>
+            <td class="mono">{{ solicitacao.quantidade_horas_formatadas }}</td>
+            <td class="desc">{{ solicitacao.motivo }}</td>
+            <td><span class="status-badge {% if solicitacao.situacao == 'APROVADO' %}status-active{% elif solicitacao.situacao == 'REPROVADO' %}status-inactive{% endif %}">{{ solicitacao.get_situacao_display }}</span></td>
+            <td class="desc">{{ solicitacao.motivo_reprovacao|default:'—' }}</td>
+            <td>{{ solicitacao.orcamento.responsavel_nome|default:'—' }}</td>
+            <td class="mono">{{ solicitacao.criado_em|date:'d/m/Y H:i' }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="8"><div class="empty-inline">Nenhuma solicitação enviada.</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

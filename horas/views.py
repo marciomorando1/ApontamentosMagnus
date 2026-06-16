@@ -15,11 +15,13 @@ from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import ProtectedError, Q
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.generic import RedirectView, TemplateView
@@ -33,8 +35,17 @@ from .forms import (
     OrcamentoForm,
     OrcamentoImportForm,
     RegistroForm,
+    SolicitacaoHorasForm,
 )
-from .models import AgendaAtividade, Estimativa, Fase, Orcamento, Registro, UserProfile
+from .models import (
+    AgendaAtividade,
+    Estimativa,
+    Fase,
+    Orcamento,
+    Registro,
+    SolicitacaoHoras,
+    UserProfile,
+)
 
 
 XLSX_NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
@@ -81,6 +92,17 @@ def _build_timer_rows_from_post(request):
             }
         )
     return rows
+
+
+def _add_model_validation_to_form(form, error):
+    if hasattr(error, 'message_dict'):
+        for field, messages_list in error.message_dict.items():
+            target_field = field if field in form.fields else None
+            for message in messages_list:
+                form.add_error(target_field, message)
+        return
+    for message in error.messages:
+        form.add_error(None, message)
 
 
 def _parse_date(value):
@@ -628,11 +650,25 @@ class SidebarContextMixin:
         context = super().get_context_data(**kwargs)
         context['sidebar_total_today'] = self.get_sidebar_total_today()
         context['orcamentos_ativos'] = Orcamento.objects.filter(ativo=True).order_by('codigo')
+        context['is_gp'] = _user_is_gp(self.request.user)
+        context['pendencias_aprovacao_count'] = 0
+        if context['is_gp']:
+            context['pendencias_aprovacao_count'] = SolicitacaoHoras.objects.filter(
+                orcamento__responsavel=self.request.user,
+                situacao=SolicitacaoHoras.SITUACAO_AGUARDANDO,
+            ).count()
         return context
 
 
 class AuthenticatedViewMixin(LoginRequiredMixin):
     login_url = 'login'
+
+
+class GerenteProjetosRequiredMixin:
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated and not _user_is_gp(request.user):
+            raise PermissionDenied
+        return super().dispatch(request, *args, **kwargs)
 
 
 class DashboardView(AuthenticatedViewMixin, RedirectView):
@@ -785,9 +821,13 @@ class TimerView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
             if form.is_valid():
                 registro = form.save(commit=False)
                 registro.user = request.user
-                registro.save()
-                messages.success(request, 'Registro salvo com sucesso.')
-                return redirect('horas:timer')
+                try:
+                    registro.save()
+                except ValidationError as exc:
+                    _add_model_validation_to_form(form, exc)
+                else:
+                    messages.success(request, 'Registro salvo com sucesso.')
+                    return redirect('horas:timer')
 
             messages.error(request, 'Corrija os campos destacados antes de salvar.')
             return self.render_to_response(self.get_context_data(form=form))
@@ -814,16 +854,21 @@ class TimerView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
             )
 
         if row_forms and all(form.is_valid() for form in row_forms):
-            for form in row_forms:
-                registro = form.save(commit=False)
-                registro.user = request.user
-                registro.save()
-            quantidade = len(row_forms)
-            messages.success(
-                request,
-                f'{quantidade} registro{"s" if quantidade != 1 else ""} salvo{"s" if quantidade != 1 else ""} com sucesso.',
-            )
-            return redirect('horas:timer')
+            try:
+                with transaction.atomic():
+                    for form in row_forms:
+                        registro = form.save(commit=False)
+                        registro.user = request.user
+                        registro.save()
+            except ValidationError as exc:
+                _add_model_validation_to_form(row_forms[0], exc)
+            else:
+                quantidade = len(row_forms)
+                messages.success(
+                    request,
+                    f'{quantidade} registro{"s" if quantidade != 1 else ""} salvo{"s" if quantidade != 1 else ""} com sucesso.',
+                )
+                return redirect('horas:timer')
 
         form = row_forms[0] if row_forms else RegistroForm(request.POST)
         messages.error(request, 'Corrija os campos destacados antes de salvar.')
@@ -947,13 +992,17 @@ class RegistroUpdateView(AuthenticatedViewMixin, SidebarContextMixin, TemplateVi
         if form.is_valid():
             registro = form.save(commit=False)
             registro.user = request.user
-            registro.save()
-            messages.success(request, 'Registro atualizado com sucesso.')
-            destino = reverse('horas:registros')
-            query = _query_string(request)
-            if query:
-                destino = f'{destino}?{query}'
-            return redirect(destino)
+            try:
+                registro.save()
+            except ValidationError as exc:
+                _add_model_validation_to_form(form, exc)
+            else:
+                messages.success(request, 'Registro atualizado com sucesso.')
+                destino = reverse('horas:registros')
+                query = _query_string(request)
+                if query:
+                    destino = f'{destino}?{query}'
+                return redirect(destino)
 
         messages.error(request, 'Corrija os campos destacados antes de salvar.')
         return self.render_to_response(self.get_context_data(form=form))
@@ -1033,7 +1082,119 @@ class ResumoView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
         return context
 
 
-class OrcamentosView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
+class SolicitacoesHorasView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
+    template_name = 'horas/solicitacoes_horas.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['section'] = 'solicitacoes_horas'
+        context['form'] = kwargs.get('form') or SolicitacaoHorasForm()
+        context['solicitacoes'] = SolicitacaoHoras.objects.select_related(
+            'orcamento',
+            'orcamento__responsavel',
+            'decidido_por',
+        ).filter(solicitante=self.request.user)
+        return context
+
+    def post(self, request, *args, **kwargs):
+        form = SolicitacaoHorasForm(request.POST)
+        if form.is_valid():
+            solicitacao = form.save(commit=False)
+            solicitacao.solicitante = request.user
+            solicitacao.save()
+            messages.success(
+                request,
+                f'Solicitação {solicitacao.numero_solicitacao} enviada para aprovação.',
+            )
+            return redirect('horas:solicitacoes_horas')
+
+        messages.error(request, 'Corrija os campos destacados antes de enviar a solicitação.')
+        return self.render_to_response(self.get_context_data(form=form))
+
+
+class SolicitacoesHorasPendentesView(
+    GerenteProjetosRequiredMixin,
+    AuthenticatedViewMixin,
+    SidebarContextMixin,
+    TemplateView,
+):
+    template_name = 'horas/solicitacoes_horas_pendentes.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['section'] = 'solicitacoes_horas_pendentes'
+        solicitacoes = SolicitacaoHoras.objects.select_related(
+            'solicitante',
+            'orcamento',
+            'decidido_por',
+        ).filter(orcamento__responsavel=self.request.user)
+        context['solicitacoes_pendentes'] = solicitacoes.filter(
+            situacao=SolicitacaoHoras.SITUACAO_AGUARDANDO
+        )
+        context['solicitacoes_processadas'] = solicitacoes.exclude(
+            situacao=SolicitacaoHoras.SITUACAO_AGUARDANDO
+        )
+        return context
+
+
+class SolicitacaoHorasDecisaoView(
+    GerenteProjetosRequiredMixin,
+    AuthenticatedViewMixin,
+    View,
+):
+    def post(self, request, pk):
+        decisao = request.POST.get('decisao')
+        motivo_reprovacao = request.POST.get('motivo_reprovacao', '').strip()
+
+        with transaction.atomic():
+            solicitacao = get_object_or_404(
+                SolicitacaoHoras.objects.select_for_update().select_related('orcamento'),
+                pk=pk,
+                orcamento__responsavel=request.user,
+            )
+            if solicitacao.situacao != SolicitacaoHoras.SITUACAO_AGUARDANDO:
+                messages.warning(request, 'Esta solicitação já foi processada.')
+                return redirect('horas:solicitacoes_horas_pendentes')
+
+            if decisao == 'aprovar':
+                orcamento = Orcamento.objects.select_for_update().get(pk=solicitacao.orcamento_id)
+                orcamento.horas_adicionais += solicitacao.quantidade_horas
+                orcamento.save(update_fields=['horas_adicionais'])
+                solicitacao.situacao = SolicitacaoHoras.SITUACAO_APROVADO
+                solicitacao.motivo_reprovacao = ''
+                mensagem = 'Solicitação aprovada e horas adicionais liberadas.'
+            elif decisao == 'reprovar':
+                if not motivo_reprovacao:
+                    messages.error(request, 'Informe o motivo para reprovar a solicitação.')
+                    return redirect('horas:solicitacoes_horas_pendentes')
+                solicitacao.situacao = SolicitacaoHoras.SITUACAO_REPROVADO
+                solicitacao.motivo_reprovacao = motivo_reprovacao
+                mensagem = 'Solicitação reprovada.'
+            else:
+                messages.error(request, 'Decisão inválida.')
+                return redirect('horas:solicitacoes_horas_pendentes')
+
+            solicitacao.decidido_por = request.user
+            solicitacao.decidido_em = timezone.now()
+            solicitacao.save(
+                update_fields=[
+                    'situacao',
+                    'motivo_reprovacao',
+                    'decidido_por',
+                    'decidido_em',
+                ]
+            )
+
+        messages.success(request, mensagem)
+        return redirect('horas:solicitacoes_horas_pendentes')
+
+
+class OrcamentosView(
+    GerenteProjetosRequiredMixin,
+    AuthenticatedViewMixin,
+    SidebarContextMixin,
+    TemplateView,
+):
     template_name = 'horas/orcamentos.html'
 
     def get_context_data(self, **kwargs):
@@ -1042,7 +1203,7 @@ class OrcamentosView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
         context['form'] = kwargs.get('form') or OrcamentoForm()
         context['import_form'] = kwargs.get('import_form') or OrcamentoImportForm()
         context['import_errors'] = kwargs.get('import_errors') or []
-        context['orcamentos'] = Orcamento.objects.order_by('codigo')
+        context['orcamentos'] = Orcamento.objects.select_related('responsavel').order_by('codigo')
         return context
 
     def post(self, request, *args, **kwargs):
@@ -1056,6 +1217,8 @@ class OrcamentosView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
                     import_errors = [str(exc)]
                     orcamentos = []
                 if not import_errors:
+                    for orcamento in orcamentos:
+                        orcamento.responsavel = request.user
                     with transaction.atomic():
                         Orcamento.objects.bulk_create(orcamentos)
                     messages.success(request, f'{len(orcamentos)} orçamento(s) importado(s) com sucesso.')
@@ -1069,7 +1232,9 @@ class OrcamentosView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
 
         form = OrcamentoForm(request.POST)
         if form.is_valid():
-            form.save()
+            orcamento = form.save(commit=False)
+            orcamento.responsavel = request.user
+            orcamento.save()
             messages.success(request, 'Orçamento adicionado com sucesso.')
             return redirect('horas:orcamentos')
 
@@ -1077,11 +1242,20 @@ class OrcamentosView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
         return self.render_to_response(self.get_context_data(form=form))
 
 
-class OrcamentoUpdateView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
+class OrcamentoUpdateView(
+    GerenteProjetosRequiredMixin,
+    AuthenticatedViewMixin,
+    SidebarContextMixin,
+    TemplateView,
+):
     template_name = 'horas/orcamento_form.html'
 
     def dispatch(self, request, *args, **kwargs):
-        self.orcamento = get_object_or_404(Orcamento, pk=kwargs['pk'])
+        self.orcamento = get_object_or_404(
+            Orcamento.objects.select_related('responsavel'),
+            pk=kwargs['pk'],
+            responsavel=request.user,
+        )
         return super().dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
@@ -1123,10 +1297,9 @@ class FasesView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
         return self.render_to_response(self.get_context_data(form=form))
 
 
-@method_decorator(login_required(login_url='login'), name='dispatch')
-class OrcamentoDeleteView(View):
+class OrcamentoDeleteView(GerenteProjetosRequiredMixin, AuthenticatedViewMixin, View):
     def post(self, request, pk):
-        orcamento = get_object_or_404(Orcamento, pk=pk)
+        orcamento = get_object_or_404(Orcamento, pk=pk, responsavel=request.user)
         try:
             orcamento.delete()
             messages.success(request, 'Orçamento removido.')

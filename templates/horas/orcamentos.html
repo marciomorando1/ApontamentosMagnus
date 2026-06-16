@@ -25,11 +25,34 @@
         {% for error in form.numero_chamado.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
       </div>
     </div>
-    <div class="form-row single">
+    <div class="form-row">
+      <div class="field">
+        <label for="novo-orcamento-horas-apontadas">Quantidade de Horas Apontadas</label>
+        <input id="novo-orcamento-horas-apontadas" type="text" value="00:00" readonly class="mono-accent">
+      </div>
+      <div class="field">
+        <label for="novo-orcamento-horas-adicionais">Horas Adicionais</label>
+        <input id="novo-orcamento-horas-adicionais" type="text" value="00:00" readonly class="mono-accent">
+      </div>
+      <div class="field">
+        <label for="novo-orcamento-horas-disponiveis">Quantidade de Horas Disponíveis</label>
+        <input id="novo-orcamento-horas-disponiveis" type="text" value="00:00" readonly class="mono-accent">
+      </div>
+    </div>
+    <div class="form-row triple">
       <div class="field">
         <label for="{{ form.nome.id_for_label }}">Nome / Descrição</label>
         {{ form.nome }}
         {% for error in form.nome.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
+        <label for="{{ form.horas.id_for_label }}">Quantidade de Horas (HH:MM)</label>
+        {{ form.horas }}
+        {% for error in form.horas.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
+        <label for="orcamento-responsavel">Responsável</label>
+        <input id="orcamento-responsavel" type="text" value="{{ request.user.get_full_name|default:request.user.username }}" disabled>
       </div>
     </div>
     <button class="btn btn-primary btn-sm" type="submit">Adicionar</button>
@@ -57,14 +80,32 @@
     <button class="btn btn-primary btn-sm" type="submit">Importar orçamentos</button>
   </form>
 
-  <div class="table-wrap">
-    <table>
+  <div class="table-wrap orcamentos-table-wrap">
+    <table class="orcamentos-table">
+      <colgroup>
+        <col class="col-orcamento">
+        <col class="col-cliente">
+        <col class="col-chamado">
+        <col class="col-descricao">
+        <col class="col-horas">
+        <col class="col-horas">
+        <col class="col-horas">
+        <col class="col-horas">
+        <col class="col-responsavel">
+        <col class="col-status">
+        <col class="col-acoes">
+      </colgroup>
       <thead>
         <tr>
           <th>Orçamento</th>
           <th>Código do Cliente</th>
           <th>Número do Chamado</th>
           <th>Nome / Descrição</th>
+          <th>Horas</th>
+          <th>Horas Adicionais</th>
+          <th>Horas Apontadas</th>
+          <th>Horas Disponíveis</th>
+          <th>Responsável</th>
           <th>Status</th>
           <th></th>
         </tr>
@@ -76,6 +117,11 @@
             <td class="mono">{{ orcamento.codigo_cliente|default:'—' }}</td>
             <td class="mono">{{ orcamento.numero_chamado|default:'—' }}</td>
             <td>{{ orcamento.nome|default:'—' }}</td>
+            <td class="mono accent-text">{{ orcamento.horas_formatadas }}</td>
+            <td class="mono">{{ orcamento.horas_adicionais_formatadas }}</td>
+            <td class="mono">{{ orcamento.horas_apontadas_formatadas }}</td>
+            <td class="mono accent-text">{{ orcamento.horas_disponiveis_formatadas }}</td>
+            <td>{{ orcamento.responsavel_nome|default:'—' }}</td>
             <td>
               {% if orcamento.ativo %}
                 <span class="status-badge status-active">Ativo</span>
@@ -83,17 +129,21 @@
                 <span class="status-badge status-inactive">Inativo</span>
               {% endif %}
             </td>
-            <td class="actions-cell">
-              <a class="btn-inline" href="{% url 'horas:orcamento_editar' orcamento.pk %}">Editar</a>
-              <form method="post" action="{% url 'horas:orcamento_remover' orcamento.pk %}">
-                {% csrf_token %}
-                <button class="btn-del" type="submit">×</button>
-              </form>
+            <td>
+              <div class="orcamento-actions">
+                {% if orcamento.responsavel_id == request.user.id %}
+                  <a class="btn-inline" href="{% url 'horas:orcamento_editar' orcamento.pk %}">Editar</a>
+                  <form method="post" action="{% url 'horas:orcamento_remover' orcamento.pk %}">
+                    {% csrf_token %}
+                    <button class="btn-del" type="submit">×</button>
+                  </form>
+                {% endif %}
+              </div>
             </td>
           </tr>
         {% empty %}
           <tr>
-            <td colspan="6"><div class="empty-inline">Nenhum orçamento cadastrado.</div></td>
+            <td colspan="11"><div class="empty-inline">Nenhum orçamento cadastrado.</div></td>
           </tr>
         {% endfor %}
       </tbody>
@@ -103,6 +153,16 @@
 
 {% block scripts %}
   <script>
+    const newBudgetHoursField = document.getElementById('{{ form.horas.id_for_label }}');
+    const newBudgetAvailableHoursField = document.getElementById('novo-orcamento-horas-disponiveis');
+
+    function updateNewBudgetAvailableHours() {
+      newBudgetAvailableHoursField.value = newBudgetHoursField.value || '00:00';
+    }
+
+    newBudgetHoursField.addEventListener('input', updateNewBudgetAvailableHours);
+    updateNewBudgetAvailableHours();
+
     document.querySelectorAll('.numeric-only').forEach((field) => {
       field.addEventListener('keydown', (event) => {
         if (

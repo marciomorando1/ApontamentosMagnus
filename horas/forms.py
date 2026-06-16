@@ -13,6 +13,7 @@ from .models import (
     Fase,
     Orcamento,
     Registro,
+    SolicitacaoHoras,
     format_decimal_hours,
 )
 
@@ -86,6 +87,9 @@ class AgendaOrcamentoSelect(forms.Select):
         if value and hasattr(value, 'instance'):
             option['attrs']['data-cliente'] = value.instance.codigo_cliente
             option['attrs']['data-chamado'] = value.instance.numero_chamado
+            option['attrs']['data-horas'] = value.instance.horas_formatadas
+            option['attrs']['data-horas-apontadas'] = value.instance.horas_apontadas_formatadas
+            option['attrs']['data-horas-disponiveis'] = value.instance.horas_disponiveis_formatadas
         return option
 
 
@@ -96,16 +100,22 @@ class DurationField(forms.CharField):
 
     def __init__(self, *args, **kwargs):
         self.compact_digits = kwargs.pop('compact_digits', False)
+        widget_attrs = {
+            'placeholder': '00:00',
+            'pattern': r'^\d{1,4}:[0-5]\d$',
+            'inputmode': 'numeric',
+            'class': 'duration-input',
+        }
+        if self.compact_digits:
+            widget_attrs.update(
+                {
+                    'data-compact-duration': 'true',
+                    'maxlength': '7',
+                }
+            )
         kwargs.setdefault(
             'widget',
-            forms.TextInput(
-                attrs={
-                    'placeholder': '00:00',
-                    'pattern': r'^\d{1,4}:[0-5]\d$',
-                    'inputmode': 'numeric',
-                    'class': 'duration-input',
-                }
-            ),
+            forms.TextInput(attrs=widget_attrs),
         )
         kwargs.setdefault('required', False)
         super().__init__(*args, **kwargs)
@@ -156,6 +166,7 @@ class RegistroForm(forms.ModelForm):
         fields = ['data', 'orcamento', 'fase', 'hora_inicio', 'hora_fim', 'descricao']
         widgets = {
             'data': DateInput(),
+            'orcamento': AgendaOrcamentoSelect(),
             'hora_inicio': TimeInput(format='%H:%M'),
             'hora_fim': TimeInput(format='%H:%M'),
             'descricao': forms.Textarea(attrs={'placeholder': 'Ex: Dado continuidade no desenvolvimento da integração...'}),
@@ -177,9 +188,15 @@ class RegistroForm(forms.ModelForm):
 
 
 class OrcamentoForm(forms.ModelForm):
+    horas = DurationField(
+        label='Quantidade de horas',
+        required=True,
+        compact_digits=True,
+    )
+
     class Meta:
         model = Orcamento
-        fields = ['codigo', 'codigo_cliente', 'numero_chamado', 'nome']
+        fields = ['codigo', 'codigo_cliente', 'numero_chamado', 'nome', 'horas']
         error_messages = {
             'codigo': {
                 'unique': 'Já existe um orçamento com este código.',
@@ -200,6 +217,16 @@ class OrcamentoForm(forms.ModelForm):
     def clean_numero_chamado(self):
         return self.cleaned_data['numero_chamado'].strip()
 
+    def clean_horas(self):
+        horas = self.cleaned_data['horas']
+        if horas <= 0:
+            raise forms.ValidationError('A quantidade de horas deve ser maior que zero.')
+        if self.instance.pk and horas + self.instance.horas_adicionais < self.instance.horas_apontadas:
+            raise forms.ValidationError(
+                'O total de horas não pode ser menor que as horas já apontadas.'
+            )
+        return horas
+
 
 class OrcamentoImportForm(forms.Form):
     arquivo = forms.FileField(
@@ -212,6 +239,38 @@ class OrcamentoImportForm(forms.Form):
         if not arquivo.name.lower().endswith('.xlsx'):
             raise forms.ValidationError('Selecione uma planilha no formato XLSX.')
         return arquivo
+
+
+class SolicitacaoHorasForm(forms.ModelForm):
+    quantidade_horas = DurationField(
+        label='Quantidade de Horas',
+        required=True,
+        compact_digits=True,
+    )
+
+    class Meta:
+        model = SolicitacaoHoras
+        fields = ['orcamento', 'quantidade_horas', 'motivo']
+        widgets = {
+            'motivo': forms.Textarea(attrs={'rows': 4}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['orcamento'].queryset = Orcamento.objects.filter(
+            ativo=True,
+            responsavel__isnull=False,
+        ).order_by('codigo')
+        self.fields['orcamento'].empty_label = '— selecione —'
+
+    def clean_quantidade_horas(self):
+        quantidade = self.cleaned_data['quantidade_horas']
+        if quantidade <= 0:
+            raise forms.ValidationError('A quantidade de horas deve ser maior que zero.')
+        return quantidade
+
+    def clean_motivo(self):
+        return self.cleaned_data['motivo'].strip()
 
 
 class FaseForm(forms.ModelForm):

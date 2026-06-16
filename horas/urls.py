@@ -22,6 +22,17 @@ urlpatterns = [
     path('estimativas/<int:pk>/remover/', views.EstimativaDeleteView.as_view(), name='estimativa_remover'),
     path('estimativas/<int:pk>/exportar/', views.exportar_estimativa_xlsx, name='estimativa_exportar'),
     path('resumo/', views.ResumoView.as_view(), name='resumo'),
+    path('solicitacoes-horas/', views.SolicitacoesHorasView.as_view(), name='solicitacoes_horas'),
+    path(
+        'solicitacoes-horas/pendentes/',
+        views.SolicitacoesHorasPendentesView.as_view(),
+        name='solicitacoes_horas_pendentes',
+    ),
+    path(
+        'solicitacoes-horas/<int:pk>/decidir/',
+        views.SolicitacaoHorasDecisaoView.as_view(),
+        name='solicitacao_horas_decidir',
+    ),
     path('orcamentos/', views.OrcamentosView.as_view(), name='orcamentos'),
     path('orcamentos/<int:pk>/editar/', views.OrcamentoUpdateView.as_view(), name='orcamento_editar'),
     path('orcamentos/<int:pk>/remover/', views.OrcamentoDeleteView.as_view(), name='orcamento_remover'),

@@ -2,7 +2,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.contrib import admin
 
-from .models import AgendaAtividade, Fase, Orcamento, Registro, UserProfile
+from .models import AgendaAtividade, Fase, Orcamento, Registro, SolicitacaoHoras, UserProfile
 
 
 User = get_user_model()
@@ -35,9 +35,27 @@ class FaseAdmin(admin.ModelAdmin):
 
 @admin.register(Orcamento)
 class OrcamentoAdmin(admin.ModelAdmin):
-    list_display = ('codigo', 'codigo_cliente', 'numero_chamado', 'nome', 'ativo', 'criado_em')
-    search_fields = ('codigo', 'codigo_cliente', 'numero_chamado', 'nome')
-    list_filter = ('ativo',)
+    list_display = (
+        'codigo',
+        'codigo_cliente',
+        'numero_chamado',
+        'nome',
+        'horas_formatadas',
+        'horas_adicionais_formatadas',
+        'horas_apontadas_formatadas',
+        'horas_disponiveis_formatadas',
+        'responsavel',
+        'ativo',
+        'criado_em',
+    )
+    search_fields = ('codigo', 'codigo_cliente', 'numero_chamado', 'nome', 'responsavel__username')
+    list_filter = ('ativo', 'responsavel')
+    readonly_fields = ('horas_adicionais', 'horas_apontadas')
+
+    def save_model(self, request, obj, form, change):
+        if not change and not obj.responsavel_id:
+            obj.responsavel = request.user
+        super().save_model(request, obj, form, change)
 
 
 @admin.register(Registro)
@@ -45,6 +63,36 @@ class RegistroAdmin(admin.ModelAdmin):
     list_display = ('user', 'data', 'hora_inicio', 'hora_fim', 'orcamento', 'fase', 'processado', 'total_formatado')
     list_filter = ('user', 'data', 'orcamento', 'fase', 'processado')
     search_fields = ('user__username', 'descricao', 'orcamento__codigo', 'orcamento__nome', 'fase__codigo', 'fase__descricao')
+
+    def delete_queryset(self, request, queryset):
+        for registro in queryset:
+            registro.delete()
+
+
+@admin.register(SolicitacaoHoras)
+class SolicitacaoHorasAdmin(admin.ModelAdmin):
+    list_display = (
+        'id',
+        'solicitante',
+        'orcamento',
+        'quantidade_horas_formatadas',
+        'situacao',
+        'decidido_por',
+        'criado_em',
+    )
+    list_filter = ('situacao', 'orcamento', 'solicitante')
+    search_fields = ('solicitante__username', 'orcamento__codigo', 'motivo', 'motivo_reprovacao')
+    readonly_fields = (
+        'solicitante',
+        'orcamento',
+        'quantidade_horas',
+        'motivo',
+        'situacao',
+        'motivo_reprovacao',
+        'decidido_por',
+        'criado_em',
+        'decidido_em',
+    )
 
 
 @admin.register(UserProfile)

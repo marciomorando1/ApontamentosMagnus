@@ -1,0 +1,80 @@
+{% extends 'base.html' %}
+
+{% block title %}Pendências para Aprovação | Apontamento de Horas{% endblock %}
+
+{% block content %}
+  <div class="page-title">Pendências para Aprovação</div>
+
+  <div class="section-label" style="margin-bottom:10px;">Aguardando aprovação</div>
+  <div class="table-wrap" style="margin-bottom:24px;">
+    <table>
+      <thead>
+        <tr>
+          <th>Número</th>
+          <th>Solicitante</th>
+          <th>Orçamento</th>
+          <th>Horas</th>
+          <th>Motivo</th>
+          <th>Decisão</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for solicitacao in solicitacoes_pendentes %}
+          <tr>
+            <td class="mono accent-text">{{ solicitacao.numero_solicitacao }}</td>
+            <td>{{ solicitacao.solicitante.get_full_name|default:solicitacao.solicitante.username }}</td>
+            <td><span class="badge-code">{{ solicitacao.orcamento.codigo }}</span></td>
+            <td class="mono">{{ solicitacao.quantidade_horas_formatadas }}</td>
+            <td class="desc">{{ solicitacao.motivo }}</td>
+            <td>
+              <form method="post" action="{% url 'horas:solicitacao_horas_decidir' solicitacao.pk %}">
+                {% csrf_token %}
+                <div class="field" style="margin-bottom:8px;">
+                  <textarea name="motivo_reprovacao" rows="2" placeholder="Motivo obrigatório para reprovação"></textarea>
+                </div>
+                <div class="actions-cell">
+                  <button class="btn-inline btn-ok" type="submit" name="decisao" value="aprovar">Aprovar</button>
+                  <button class="btn-del" type="submit" name="decisao" value="reprovar">Reprovar</button>
+                </div>
+              </form>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6"><div class="empty-inline">Nenhuma solicitação aguardando aprovação.</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="section-label" style="margin-bottom:10px;">Já processadas</div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Número</th>
+          <th>Solicitante</th>
+          <th>Orçamento</th>
+          <th>Horas</th>
+          <th>Situação</th>
+          <th>Motivo da Reprovação</th>
+          <th>Processada em</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for solicitacao in solicitacoes_processadas %}
+          <tr>
+            <td class="mono accent-text">{{ solicitacao.numero_solicitacao }}</td>
+            <td>{{ solicitacao.solicitante.get_full_name|default:solicitacao.solicitante.username }}</td>
+            <td><span class="badge-code">{{ solicitacao.orcamento.codigo }}</span></td>
+            <td class="mono">{{ solicitacao.quantidade_horas_formatadas }}</td>
+            <td><span class="status-badge {% if solicitacao.situacao == 'APROVADO' %}status-active{% else %}status-inactive{% endif %}">{{ solicitacao.get_situacao_display }}</span></td>
+            <td class="desc">{{ solicitacao.motivo_reprovacao|default:'—' }}</td>
+            <td class="mono">{{ solicitacao.decidido_em|date:'d/m/Y H:i' }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="7"><div class="empty-inline">Nenhuma solicitação processada.</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

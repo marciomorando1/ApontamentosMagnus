@@ -10,7 +10,15 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 
-from .models import AgendaAtividade, Estimativa, Fase, Orcamento, Registro, UserProfile
+from .models import (
+    AgendaAtividade,
+    Estimativa,
+    Fase,
+    Orcamento,
+    Registro,
+    SolicitacaoHoras,
+    UserProfile,
+)
 
 
 User = get_user_model()
@@ -84,6 +92,9 @@ class AuthenticatedTestCase(TestCase):
         self.fase = Fase.objects.create(codigo='101', descricao='Comercial - Venda')
 
     def criar_registro(self, *, orcamento, fase=None, user=None, **kwargs):
+        if orcamento.horas == 0:
+            orcamento.horas = Decimal('1000')
+            orcamento.save(update_fields=['horas'])
         defaults = {
             'user': user or self.user,
             'orcamento': orcamento,
@@ -100,7 +111,7 @@ class AuthenticatedTestCase(TestCase):
 class RegistroModelTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username='model-user', password='senha-segura')
-        self.orcamento = Orcamento.objects.create(codigo='17275', nome='Projeto teste')
+        self.orcamento = Orcamento.objects.create(codigo='17275', nome='Projeto teste', horas='1000')
         self.fase = Fase.objects.create(codigo='101', descricao='Comercial - Venda')
 
     def test_rejeita_data_futura(self):
@@ -153,7 +164,11 @@ class RegistroModelTests(TestCase):
 class TimerViewTests(AuthenticatedTestCase):
     def setUp(self):
         super().setUp()
-        self.orcamento = Orcamento.objects.create(codigo='17275', nome='Projeto teste')
+        self.orcamento = Orcamento.objects.create(
+            codigo='17275',
+            nome='Projeto teste',
+            horas=Decimal('20.5'),
+        )
 
     def test_cria_registro_valido(self):
         response = self.client.post(
@@ -184,7 +199,22 @@ class TimerViewTests(AuthenticatedTestCase):
         self.assertEqual(response.context['form'].initial['data'], data_apontamento)
         self.assertEqual(response.context['form'].initial['orcamento'], str(self.orcamento.pk))
         self.assertContains(response, 'value="2026-06-10"', html=False)
-        self.assertContains(response, f'<option value="{self.orcamento.pk}" selected>', html=False)
+        self.assertContains(
+            response,
+            f'<option value="{self.orcamento.pk}" selected',
+            html=False,
+        )
+        self.assertContains(response, 'data-horas-apontadas="00:00"', html=False)
+        self.assertContains(response, 'data-horas-disponiveis="20:30"', html=False)
+
+    def test_exibe_horas_do_orcamento_em_campo_somente_leitura(self):
+        response = self.client.get(reverse('horas:timer'))
+
+        self.assertContains(response, 'id="orcamento-horas"', html=False)
+        self.assertContains(response, 'id="orcamento-horas" placeholder="—" readonly', html=False)
+        self.assertContains(response, 'data-horas="20:30"', html=False)
+        self.assertContains(response, 'function updateBudgetHours()', html=False)
+        self.assertContains(response, "budgetField.addEventListener('change', updateBudgetHours)", html=False)
 
     def test_apontamento_preenche_orcamento_da_agenda_mesmo_se_inativo(self):
         self.orcamento.ativo = False
@@ -195,7 +225,11 @@ class TimerViewTests(AuthenticatedTestCase):
             {'data': '2026-06-10', 'orcamento': self.orcamento.pk},
         )
 
-        self.assertContains(response, f'<option value="{self.orcamento.pk}" selected>', html=False)
+        self.assertContains(
+            response,
+            f'<option value="{self.orcamento.pk}" selected',
+            html=False,
+        )
 
     def test_salva_varios_registros_manuais_no_mesmo_envio(self):
         response = self.client.post(
@@ -232,6 +266,116 @@ class TimerViewTests(AuthenticatedTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(Registro.objects.count(), 0)
         self.assertContains(response, 'Selecione')
+
+    def test_apontamento_contabiliza_horas_no_orcamento_independente_do_usuario(self):
+        self.client.post(
+            reverse('horas:timer'),
+            data={
+                'data': date.today().isoformat(),
+                'orcamento': self.orcamento.pk,
+                'fase': self.fase.pk,
+                'hora_inicio': '08:00',
+                'hora_fim': '09:30',
+                'descricao': 'Primeiro usuário',
+            },
+        )
+        self.client.force_login(self.other_user)
+        self.client.post(
+            reverse('horas:timer'),
+            data={
+                'data': date.today().isoformat(),
+                'orcamento': self.orcamento.pk,
+                'fase': self.fase.pk,
+                'hora_inicio': '10:00',
+                'hora_fim': '11:00',
+                'descricao': 'Segundo usuário',
+            },
+        )
+
+        self.orcamento.refresh_from_db()
+        self.assertEqual(self.orcamento.horas_apontadas, Decimal('2.50'))
+        self.assertEqual(self.orcamento.horas_disponiveis, Decimal('18.00'))
+
+    def test_bloqueia_apontamento_que_excede_horas_disponiveis(self):
+        self.orcamento.horas = Decimal('2')
+        self.orcamento.responsavel = self.other_user
+        self.orcamento.save(update_fields=['horas', 'responsavel'])
+
+        response = self.client.post(
+            reverse('horas:timer'),
+            data={
+                'data': date.today().isoformat(),
+                'orcamento': self.orcamento.pk,
+                'fase': self.fase.pk,
+                'hora_inicio': '08:00',
+                'hora_fim': '11:00',
+                'descricao': 'Excede saldo',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'excede as horas disponíveis')
+        self.assertContains(response, self.other_user.username)
+        self.assertEqual(Registro.objects.count(), 0)
+        self.orcamento.refresh_from_db()
+        self.assertEqual(self.orcamento.horas_apontadas, Decimal('0'))
+
+    def test_multiplos_apontamentos_sao_bloqueados_sem_consumir_saldo_parcial(self):
+        self.orcamento.horas = Decimal('2')
+        self.orcamento.save(update_fields=['horas'])
+
+        response = self.client.post(
+            reverse('horas:timer'),
+            data={
+                'submission_mode': 'manual',
+                'data': date.today().isoformat(),
+                'orcamento': self.orcamento.pk,
+                'fase': self.fase.pk,
+                'hora_inicio': '08:00',
+                'hora_fim': '09:30',
+                'descricao': 'Dentro do saldo',
+                'extra_hora_inicio': ['10:00'],
+                'extra_hora_fim': ['11:00'],
+                'extra_descricao': ['Excede no conjunto'],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'excede as horas disponíveis')
+        self.assertEqual(Registro.objects.count(), 0)
+        self.orcamento.refresh_from_db()
+        self.assertEqual(self.orcamento.horas_apontadas, Decimal('0'))
+
+    def test_remover_apontamento_devolve_horas_ao_orcamento(self):
+        self.client.post(
+            reverse('horas:timer'),
+            data={
+                'data': date.today().isoformat(),
+                'orcamento': self.orcamento.pk,
+                'fase': self.fase.pk,
+                'hora_inicio': '08:00',
+                'hora_fim': '10:00',
+                'descricao': 'Será removido',
+            },
+        )
+        registro = Registro.objects.get()
+
+        self.client.post(reverse('horas:registro_remover', args=[registro.pk]))
+
+        self.orcamento.refresh_from_db()
+        self.assertEqual(self.orcamento.horas_apontadas, Decimal('0'))
+        self.assertEqual(self.orcamento.horas_disponiveis, Decimal('20.50'))
+
+    def test_timer_exibe_horas_apontadas_e_disponiveis(self):
+        self.orcamento.horas_apontadas = Decimal('4.50')
+        self.orcamento.save(update_fields=['horas_apontadas'])
+
+        response = self.client.get(reverse('horas:timer'))
+
+        self.assertContains(response, 'Quantidade de Horas Apontadas')
+        self.assertContains(response, 'Quantidade de Horas Disponíveis')
+        self.assertContains(response, 'data-horas-apontadas="04:30"', html=False)
+        self.assertContains(response, 'data-horas-disponiveis="16:00"', html=False)
 
 
 class RegistrosViewTests(AuthenticatedTestCase):
@@ -317,6 +461,31 @@ class RegistrosViewTests(AuthenticatedTestCase):
         self.assertEqual(registro.hora_inicio.isoformat(timespec='minutes'), '10:30')
         self.assertEqual(registro.hora_fim.isoformat(timespec='minutes'), '11:45')
         self.assertEqual(registro.descricao, 'Descrição alterada')
+
+    def test_edicao_recalcula_horas_apontadas_do_orcamento(self):
+        registro = self.criar_registro(
+            orcamento=self.orcamento,
+            hora_inicio='08:00',
+            hora_fim='09:00',
+        )
+        self.orcamento.refresh_from_db()
+        self.assertEqual(self.orcamento.horas_apontadas, Decimal('1.00'))
+
+        response = self.client.post(
+            reverse('horas:registro_editar', args=[registro.pk]),
+            data={
+                'data': date.today().isoformat(),
+                'orcamento': self.orcamento.pk,
+                'fase': self.fase.pk,
+                'hora_inicio': '08:00',
+                'hora_fim': '10:30',
+                'descricao': 'Duracao atualizada',
+            },
+        )
+
+        self.assertRedirects(response, reverse('horas:registros'), fetch_redirect_response=False)
+        self.orcamento.refresh_from_db()
+        self.assertEqual(self.orcamento.horas_apontadas, Decimal('2.50'))
 
     def test_formulario_edicao_mantem_data_preenchida(self):
         registro = self.criar_registro(
@@ -560,6 +729,11 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         'descricao',
     ]
 
+    def setUp(self):
+        super().setUp()
+        self.user.profile.is_gerente_projetos = True
+        self.user.profile.save(update_fields=['is_gerente_projetos'])
+
     def importar_planilha(self, rows, filename='orcamentos.xlsx'):
         arquivo = SimpleUploadedFile(
             filename,
@@ -579,6 +753,7 @@ class OrcamentosViewTests(AuthenticatedTestCase):
                 'codigo_cliente': '200',
                 'numero_chamado': '300',
                 'nome': 'Projeto com chamado',
+                'horas': '12:30',
             },
             follow=True,
         )
@@ -587,8 +762,49 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         orcamento = Orcamento.objects.get(codigo='100')
         self.assertEqual(orcamento.codigo_cliente, '200')
         self.assertEqual(orcamento.numero_chamado, '300')
+        self.assertEqual(orcamento.horas, Decimal('12.50'))
+        self.assertEqual(orcamento.responsavel, self.user)
         self.assertContains(response, '<td class="mono">200</td>', html=True)
         self.assertContains(response, '<td class="mono">300</td>', html=True)
+        self.assertContains(response, '12:30')
+        self.assertContains(response, self.user.username)
+
+    def test_quantidade_horas_aceita_digitos_sem_separador(self):
+        response = self.client.post(
+            reverse('horas:orcamentos'),
+            data={
+                'codigo': '101',
+                'codigo_cliente': '201',
+                'numero_chamado': '301',
+                'nome': 'Projeto com horas compactas',
+                'horas': '2000',
+            },
+        )
+
+        self.assertRedirects(response, reverse('horas:orcamentos'), fetch_redirect_response=False)
+        orcamento = Orcamento.objects.get(codigo='101')
+        self.assertEqual(orcamento.horas, Decimal('20'))
+        self.assertEqual(orcamento.horas_formatadas, '20:00')
+
+    def test_quantidade_horas_rejeita_minutos_invalidos(self):
+        response = self.client.post(
+            reverse('horas:orcamentos'),
+            data={
+                'codigo': '101',
+                'codigo_cliente': '201',
+                'numero_chamado': '301',
+                'nome': 'Projeto inválido',
+                'horas': '20:60',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFormError(
+            response.context['form'],
+            'horas',
+            'Informe as horas no formato HH:MM.',
+        )
+        self.assertFalse(Orcamento.objects.filter(codigo='101').exists())
 
     def test_lista_orcamentos_em_linhas_com_acoes(self):
         orcamento = Orcamento.objects.create(
@@ -596,15 +812,31 @@ class OrcamentosViewTests(AuthenticatedTestCase):
             codigo_cliente='2001',
             numero_chamado='3001',
             nome='Projeto em linha',
+            responsavel=self.user,
         )
 
         response = self.client.get(reverse('horas:orcamentos'))
 
-        self.assertContains(response, '<table>', html=False)
+        self.assertContains(response, '<table class="orcamentos-table">', html=False)
         self.assertNotContains(response, 'class="orc-grid"', html=False)
         self.assertContains(response, 'Projeto em linha')
         self.assertContains(response, reverse('horas:orcamento_editar', args=[orcamento.pk]))
         self.assertContains(response, reverse('horas:orcamento_remover', args=[orcamento.pk]))
+
+    def test_lista_orcamentos_usa_tabela_compacta_sem_flex_no_td_de_acoes(self):
+        Orcamento.objects.create(
+            codigo='1001',
+            nome='Projeto em linha',
+            responsavel=self.user,
+        )
+
+        response = self.client.get(reverse('horas:orcamentos'))
+
+        self.assertContains(response, 'class="table-wrap orcamentos-table-wrap"', html=False)
+        self.assertContains(response, 'class="orcamentos-table"', html=False)
+        self.assertContains(response, '<colgroup>', html=False)
+        self.assertContains(response, 'class="orcamento-actions"', html=False)
+        self.assertNotContains(response, '<td class="actions-cell">', html=False)
 
     def test_rejeita_letras_nos_campos_numericos(self):
         response = self.client.post(
@@ -613,6 +845,7 @@ class OrcamentosViewTests(AuthenticatedTestCase):
                 'codigo': 'ORC-100',
                 'codigo_cliente': 'CLI-200',
                 'numero_chamado': 'CH-300',
+                'horas': '10:00',
                 'nome': 'Projeto inválido',
             },
         )
@@ -629,9 +862,14 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         self.assertContains(response, 'name="codigo" inputmode="numeric"', html=False)
         self.assertContains(response, 'name="codigo_cliente" inputmode="numeric"', html=False)
         self.assertContains(response, 'name="numero_chamado" inputmode="numeric"', html=False)
+        self.assertContains(response, 'name="horas"', html=False)
+        self.assertContains(response, 'data-compact-duration="true"', html=False)
+        self.assertContains(response, 'maxlength="7"', html=False)
         self.assertContains(response, 'numeric-only', count=4)
         self.assertContains(response, "field.value.replace(/\\D/g, '')", html=False)
         self.assertContains(response, 'event.preventDefault()', html=False)
+        self.assertContains(response, 'function maskCompactDuration(input)', html=False)
+        self.assertContains(response, 'digits.slice(0, -2)', html=False)
 
     def test_permite_orcamento_legado_sem_novos_campos(self):
         orcamento = Orcamento.objects.create(codigo='ORC-LEGADO', nome='Legado')
@@ -655,6 +893,7 @@ class OrcamentosViewTests(AuthenticatedTestCase):
                 codigo_cliente='2001',
                 numero_chamado='3001',
                 nome='Projeto A',
+                responsavel=self.user,
             ).exists()
         )
         self.assertTrue(Orcamento.objects.filter(codigo='1002').exists())
@@ -714,7 +953,7 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         self.assertEqual(Orcamento.objects.count(), 0)
 
     def test_lista_exibe_opcao_editar_orcamento(self):
-        orcamento = Orcamento.objects.create(codigo='1001', nome='Projeto')
+        orcamento = Orcamento.objects.create(codigo='1001', nome='Projeto', responsavel=self.user)
 
         response = self.client.get(reverse('horas:orcamentos'))
 
@@ -726,6 +965,8 @@ class OrcamentosViewTests(AuthenticatedTestCase):
             codigo_cliente='2001',
             numero_chamado='3001',
             nome='Projeto original',
+            horas='8.50',
+            responsavel=self.user,
         )
 
         response = self.client.get(reverse('horas:orcamento_editar', args=[orcamento.pk]))
@@ -737,7 +978,12 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         self.assertContains(response, 'value="Projeto original"', html=False)
 
     def test_edita_orcamento(self):
-        orcamento = Orcamento.objects.create(codigo='1001', nome='Projeto original')
+        orcamento = Orcamento.objects.create(
+            codigo='1001',
+            nome='Projeto original',
+            horas='8.00',
+            responsavel=self.user,
+        )
 
         response = self.client.post(
             reverse('horas:orcamento_editar', args=[orcamento.pk]),
@@ -746,6 +992,7 @@ class OrcamentosViewTests(AuthenticatedTestCase):
                 'codigo_cliente': '2002',
                 'numero_chamado': '3002',
                 'nome': 'Projeto atualizado',
+                'horas': '12:45',
             },
         )
 
@@ -755,9 +1002,40 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         self.assertEqual(orcamento.codigo_cliente, '2002')
         self.assertEqual(orcamento.numero_chamado, '3002')
         self.assertEqual(orcamento.nome, 'Projeto atualizado')
+        self.assertEqual(orcamento.horas, Decimal('12.75'))
+        self.assertEqual(orcamento.responsavel, self.user)
+
+    def test_nao_permite_reduzir_horas_abaixo_do_total_apontado(self):
+        orcamento = Orcamento.objects.create(
+            codigo='1001',
+            nome='Projeto',
+            horas='10.00',
+            horas_apontadas='8.00',
+            responsavel=self.user,
+        )
+
+        response = self.client.post(
+            reverse('horas:orcamento_editar', args=[orcamento.pk]),
+            data={
+                'codigo': '1001',
+                'codigo_cliente': '',
+                'numero_chamado': '',
+                'nome': 'Projeto',
+                'horas': '07:00',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFormError(
+            response.context['form'],
+            'horas',
+            'O total de horas não pode ser menor que as horas já apontadas.',
+        )
+        orcamento.refresh_from_db()
+        self.assertEqual(orcamento.horas, Decimal('10.00'))
 
     def test_edicao_rejeita_codigo_duplicado(self):
-        orcamento = Orcamento.objects.create(codigo='1001', nome='Primeiro')
+        orcamento = Orcamento.objects.create(codigo='1001', nome='Primeiro', responsavel=self.user)
         Orcamento.objects.create(codigo='1002', nome='Segundo')
 
         response = self.client.post(
@@ -767,6 +1045,7 @@ class OrcamentosViewTests(AuthenticatedTestCase):
                 'codigo_cliente': '2001',
                 'numero_chamado': '3001',
                 'nome': 'Duplicado',
+                'horas': '10:00',
             },
         )
 
@@ -780,7 +1059,7 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         )
 
     def test_edicao_rejeita_letras_nos_campos_numericos(self):
-        orcamento = Orcamento.objects.create(codigo='1001', nome='Projeto')
+        orcamento = Orcamento.objects.create(codigo='1001', nome='Projeto', responsavel=self.user)
 
         response = self.client.post(
             reverse('horas:orcamento_editar', args=[orcamento.pk]),
@@ -788,6 +1067,7 @@ class OrcamentosViewTests(AuthenticatedTestCase):
                 'codigo': 'ORC-1',
                 'codigo_cliente': 'CLI-1',
                 'numero_chamado': 'CH-1',
+                'horas': '10:00',
                 'nome': 'Inválido',
             },
         )
@@ -796,6 +1076,327 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         self.assertFormError(response.context['form'], 'codigo', 'Informe somente números.')
         self.assertFormError(response.context['form'], 'codigo_cliente', 'Informe somente números.')
         self.assertFormError(response.context['form'], 'numero_chamado', 'Informe somente números.')
+
+    def test_outro_usuario_nao_pode_editar_orcamento(self):
+        orcamento = Orcamento.objects.create(
+            codigo='1001',
+            nome='Projeto',
+            horas='10.00',
+            responsavel=self.other_user,
+        )
+
+        response = self.client.get(reverse('horas:orcamento_editar', args=[orcamento.pk]))
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_outro_usuario_nao_pode_remover_orcamento(self):
+        orcamento = Orcamento.objects.create(
+            codigo='1001',
+            nome='Projeto',
+            horas='10.00',
+            responsavel=self.other_user,
+        )
+
+        response = self.client.post(reverse('horas:orcamento_remover', args=[orcamento.pk]))
+
+        self.assertEqual(response.status_code, 404)
+        self.assertTrue(Orcamento.objects.filter(pk=orcamento.pk).exists())
+
+    def test_lista_oculta_acoes_de_orcamento_de_outro_usuario(self):
+        orcamento = Orcamento.objects.create(
+            codigo='1001',
+            nome='Projeto',
+            horas='10.00',
+            responsavel=self.other_user,
+        )
+
+        response = self.client.get(reverse('horas:orcamentos'))
+
+        self.assertContains(response, self.other_user.username)
+        self.assertNotContains(response, reverse('horas:orcamento_editar', args=[orcamento.pk]))
+        self.assertNotContains(response, reverse('horas:orcamento_remover', args=[orcamento.pk]))
+
+
+class OrcamentosPermissionTests(AuthenticatedTestCase):
+    def test_usuario_sem_perfil_gp_nao_ve_menu_orcamentos(self):
+        response = self.client.get(reverse('horas:timer'))
+
+        self.assertNotContains(response, reverse('horas:orcamentos'))
+
+    def test_usuario_gp_ve_menu_orcamentos(self):
+        self.user.profile.is_gerente_projetos = True
+        self.user.profile.save(update_fields=['is_gerente_projetos'])
+
+        response = self.client.get(reverse('horas:timer'))
+
+        self.assertContains(response, reverse('horas:orcamentos'))
+
+    def test_usuario_sem_perfil_gp_nao_acessa_orcamentos(self):
+        response = self.client.get(reverse('horas:orcamentos'))
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_usuario_sem_perfil_gp_nao_cadastra_orcamento(self):
+        response = self.client.post(
+            reverse('horas:orcamentos'),
+            data={
+                'codigo': '1001',
+                'codigo_cliente': '2001',
+                'numero_chamado': '3001',
+                'nome': 'Projeto sem permissao',
+                'horas': '20:00',
+            },
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(Orcamento.objects.filter(codigo='1001').exists())
+
+    def test_usuario_sem_perfil_gp_nao_edita_nem_remove_orcamento(self):
+        orcamento = Orcamento.objects.create(
+            codigo='1001',
+            nome='Projeto',
+            horas='20.00',
+            responsavel=self.user,
+        )
+
+        response_edicao = self.client.get(reverse('horas:orcamento_editar', args=[orcamento.pk]))
+        response_remocao = self.client.post(reverse('horas:orcamento_remover', args=[orcamento.pk]))
+
+        self.assertEqual(response_edicao.status_code, 403)
+        self.assertEqual(response_remocao.status_code, 403)
+        self.assertTrue(Orcamento.objects.filter(pk=orcamento.pk).exists())
+
+
+class SolicitacoesHorasViewTests(AuthenticatedTestCase):
+    def setUp(self):
+        super().setUp()
+        self.gp = User.objects.create_user(username='gp-solicitacao', password='senha-segura')
+        self.gp.profile.is_gerente_projetos = True
+        self.gp.profile.save(update_fields=['is_gerente_projetos'])
+        self.outro_gp = User.objects.create_user(username='outro-gp', password='senha-segura')
+        self.outro_gp.profile.is_gerente_projetos = True
+        self.outro_gp.profile.save(update_fields=['is_gerente_projetos'])
+        self.orcamento = Orcamento.objects.create(
+            codigo='5001',
+            nome='Projeto Solicitação',
+            horas='10.00',
+            horas_apontadas='10.00',
+            responsavel=self.gp,
+        )
+
+    def criar_solicitacao(self, *, solicitante=None, orcamento=None, quantidade='5.00', **kwargs):
+        return SolicitacaoHoras.objects.create(
+            solicitante=solicitante or self.user,
+            orcamento=orcamento or self.orcamento,
+            quantidade_horas=quantidade,
+            motivo='Necessidade de continuidade',
+            **kwargs,
+        )
+
+    def test_usuario_e_gp_visualizam_menu_solicitar_horas(self):
+        response_usuario = self.client.get(reverse('horas:timer'))
+        self.client.force_login(self.gp)
+        response_gp = self.client.get(reverse('horas:timer'))
+
+        self.assertContains(response_usuario, reverse('horas:solicitacoes_horas'))
+        self.assertContains(response_gp, reverse('horas:solicitacoes_horas'))
+
+    def test_apenas_gp_visualiza_menu_e_acessa_pendencias(self):
+        response_usuario = self.client.get(reverse('horas:timer'))
+        response_negado = self.client.get(reverse('horas:solicitacoes_horas_pendentes'))
+        self.client.force_login(self.gp)
+        response_gp = self.client.get(reverse('horas:timer'))
+        response_permitido = self.client.get(reverse('horas:solicitacoes_horas_pendentes'))
+
+        self.assertNotContains(response_usuario, reverse('horas:solicitacoes_horas_pendentes'))
+        self.assertEqual(response_negado.status_code, 403)
+        self.assertContains(response_gp, reverse('horas:solicitacoes_horas_pendentes'))
+        self.assertEqual(response_permitido.status_code, 200)
+
+    def test_usuario_cria_solicitacao_com_numero_sequencial(self):
+        response = self.client.post(
+            reverse('horas:solicitacoes_horas'),
+            data={
+                'orcamento': self.orcamento.pk,
+                'quantidade_horas': '05:30',
+                'motivo': 'Horas insuficientes para concluir',
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse('horas:solicitacoes_horas'),
+            fetch_redirect_response=False,
+        )
+        solicitacao = SolicitacaoHoras.objects.get()
+        self.assertEqual(solicitacao.numero_solicitacao, solicitacao.pk)
+        self.assertEqual(solicitacao.quantidade_horas, Decimal('5.50'))
+        self.assertEqual(solicitacao.situacao, SolicitacaoHoras.SITUACAO_AGUARDANDO)
+        self.assertEqual(solicitacao.solicitante, self.user)
+
+    def test_usuario_lista_apenas_suas_solicitacoes(self):
+        minha = self.criar_solicitacao()
+        outra = self.criar_solicitacao(solicitante=self.other_user)
+
+        response = self.client.get(reverse('horas:solicitacoes_horas'))
+
+        self.assertContains(response, str(minha.pk))
+        self.assertNotContains(response, f'<td class="mono accent-text">{outra.pk}</td>', html=False)
+
+    def test_gp_lista_pendencias_apenas_dos_orcamentos_sob_sua_responsabilidade(self):
+        minha_pendencia = self.criar_solicitacao()
+        outro_orcamento = Orcamento.objects.create(
+            codigo='5002',
+            horas='10.00',
+            responsavel=self.outro_gp,
+        )
+        outra_pendencia = self.criar_solicitacao(orcamento=outro_orcamento)
+        self.client.force_login(self.gp)
+
+        response = self.client.get(reverse('horas:solicitacoes_horas_pendentes'))
+
+        self.assertContains(response, str(minha_pendencia.pk))
+        self.assertNotContains(
+            response,
+            f'<td class="mono accent-text">{outra_pendencia.pk}</td>',
+            html=False,
+        )
+
+    def test_menu_gp_exibe_badge_com_quantidade_de_pendencias(self):
+        self.criar_solicitacao()
+        self.criar_solicitacao(solicitante=self.other_user)
+        self.client.force_login(self.gp)
+
+        response = self.client.get(reverse('horas:timer'))
+
+        self.assertEqual(response.context['pendencias_aprovacao_count'], 2)
+        self.assertContains(response, 'has-pending')
+        self.assertContains(response, 'class="nav-pending-badge"', html=False)
+        self.assertContains(response, '>2</span>', html=False)
+
+    def test_menu_gp_nao_exibe_badge_sem_pendencias(self):
+        self.client.force_login(self.gp)
+
+        response = self.client.get(reverse('horas:timer'))
+
+        self.assertEqual(response.context['pendencias_aprovacao_count'], 0)
+        self.assertNotContains(response, 'class="nav-pending-badge"', html=False)
+        self.assertNotContains(response, 'has-pending')
+
+    def test_badge_considera_apenas_pendencias_do_gp_logado(self):
+        outro_orcamento = Orcamento.objects.create(
+            codigo='5002',
+            horas='10.00',
+            responsavel=self.outro_gp,
+        )
+        self.criar_solicitacao()
+        self.criar_solicitacao(orcamento=outro_orcamento)
+        self.client.force_login(self.gp)
+
+        response = self.client.get(reverse('horas:timer'))
+
+        self.assertEqual(response.context['pendencias_aprovacao_count'], 1)
+        self.assertContains(response, '>1</span>', html=False)
+
+    def test_gp_responsavel_aprova_e_adiciona_horas_ao_orcamento(self):
+        solicitacao = self.criar_solicitacao(quantidade='4.50')
+        self.client.force_login(self.gp)
+
+        response = self.client.post(
+            reverse('horas:solicitacao_horas_decidir', args=[solicitacao.pk]),
+            data={'decisao': 'aprovar'},
+        )
+
+        self.assertRedirects(
+            response,
+            reverse('horas:solicitacoes_horas_pendentes'),
+            fetch_redirect_response=False,
+        )
+        solicitacao.refresh_from_db()
+        self.orcamento.refresh_from_db()
+        self.assertEqual(solicitacao.situacao, SolicitacaoHoras.SITUACAO_APROVADO)
+        self.assertEqual(solicitacao.decidido_por, self.gp)
+        self.assertEqual(self.orcamento.horas_adicionais, Decimal('4.50'))
+        self.assertEqual(self.orcamento.horas_disponiveis, Decimal('4.50'))
+
+    def test_gp_nao_pode_aprovar_solicitacao_de_outro_responsavel(self):
+        solicitacao = self.criar_solicitacao()
+        self.client.force_login(self.outro_gp)
+
+        response = self.client.post(
+            reverse('horas:solicitacao_horas_decidir', args=[solicitacao.pk]),
+            data={'decisao': 'aprovar'},
+        )
+
+        self.assertEqual(response.status_code, 404)
+        solicitacao.refresh_from_db()
+        self.assertEqual(solicitacao.situacao, SolicitacaoHoras.SITUACAO_AGUARDANDO)
+
+    def test_reprovacao_exige_motivo_e_exibe_para_solicitante(self):
+        solicitacao = self.criar_solicitacao()
+        self.client.force_login(self.gp)
+        response_sem_motivo = self.client.post(
+            reverse('horas:solicitacao_horas_decidir', args=[solicitacao.pk]),
+            data={'decisao': 'reprovar', 'motivo_reprovacao': ''},
+        )
+        solicitacao.refresh_from_db()
+        self.assertRedirects(
+            response_sem_motivo,
+            reverse('horas:solicitacoes_horas_pendentes'),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(solicitacao.situacao, SolicitacaoHoras.SITUACAO_AGUARDANDO)
+
+        motivo = 'Escopo não aprovado pelo cliente'
+        self.client.post(
+            reverse('horas:solicitacao_horas_decidir', args=[solicitacao.pk]),
+            data={'decisao': 'reprovar', 'motivo_reprovacao': motivo},
+        )
+        solicitacao.refresh_from_db()
+        self.assertEqual(solicitacao.situacao, SolicitacaoHoras.SITUACAO_REPROVADO)
+        self.assertEqual(solicitacao.motivo_reprovacao, motivo)
+
+        self.client.force_login(self.user)
+        response_usuario = self.client.get(reverse('horas:solicitacoes_horas'))
+        self.assertContains(response_usuario, 'Reprovado')
+        self.assertContains(response_usuario, motivo)
+
+    def test_solicitacao_aprovada_nao_pode_ser_processada_novamente(self):
+        solicitacao = self.criar_solicitacao(quantidade='3.00')
+        self.client.force_login(self.gp)
+        url = reverse('horas:solicitacao_horas_decidir', args=[solicitacao.pk])
+
+        self.client.post(url, data={'decisao': 'aprovar'})
+        self.client.post(url, data={'decisao': 'aprovar'})
+
+        self.orcamento.refresh_from_db()
+        self.assertEqual(self.orcamento.horas_adicionais, Decimal('3.00'))
+
+    def test_horas_aprovadas_ficam_disponiveis_para_apontamento(self):
+        solicitacao = self.criar_solicitacao(quantidade='2.00')
+        self.client.force_login(self.gp)
+        self.client.post(
+            reverse('horas:solicitacao_horas_decidir', args=[solicitacao.pk]),
+            data={'decisao': 'aprovar'},
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse('horas:timer'),
+            data={
+                'data': date.today().isoformat(),
+                'orcamento': self.orcamento.pk,
+                'fase': self.fase.pk,
+                'hora_inicio': '08:00',
+                'hora_fim': '10:00',
+                'descricao': 'Uso das horas adicionais',
+            },
+        )
+
+        self.assertRedirects(response, reverse('horas:timer'), fetch_redirect_response=False)
+        self.orcamento.refresh_from_db()
+        self.assertEqual(self.orcamento.horas_apontadas, Decimal('12.00'))
+        self.assertEqual(self.orcamento.horas_disponiveis, Decimal('0'))
 
 
 class EstimativasViewTests(AuthenticatedTestCase):
@@ -1492,6 +2093,52 @@ class AgendaViewTests(TestCase):
 
         self.assertContains(response, '08:00 - 17:00')
         self.assertContains(response, 'Máx. 16:00')
+
+    def test_card_agenda_exibe_horas_apontadas_e_disponiveis_atualizadas(self):
+        self.orcamento.horas = Decimal('20')
+        self.orcamento.horas_apontadas = Decimal('7.5')
+        self.orcamento.save(update_fields=['horas', 'horas_apontadas'])
+        self.criar_atividade(user=self.user, criado_por=self.user, titulo='Saldo atualizado')
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('horas:agenda'), {'mes': '2026-06'})
+
+        self.assertContains(response, 'HRS APT: 07:30')
+        self.assertContains(response, 'HRS DIS: 12:30')
+
+        self.orcamento.horas_apontadas = Decimal('10')
+        self.orcamento.save(update_fields=['horas_apontadas'])
+        response = self.client.get(reverse('horas:agenda'), {'mes': '2026-06'})
+
+        self.assertContains(response, 'HRS APT: 10:00')
+        self.assertContains(response, 'HRS DIS: 10:00')
+
+    def test_card_agenda_fica_vermelho_quando_nao_ha_horas_disponiveis(self):
+        self.orcamento.horas = Decimal('8')
+        self.orcamento.horas_adicionais = Decimal('2')
+        self.orcamento.horas_apontadas = Decimal('10')
+        self.orcamento.save(update_fields=['horas', 'horas_adicionais', 'horas_apontadas'])
+        self.criar_atividade(user=self.user, criado_por=self.user, titulo='Sem saldo')
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('horas:agenda'), {'mes': '2026-06'})
+
+        self.assertContains(response, 'is-out-of-hours')
+        self.assertContains(response, 'HRS DIS: 00:00')
+        self.assertContains(response, '.agenda-event.is-out-of-hours')
+
+    def test_card_agenda_mantem_cor_normal_quando_ha_horas_disponiveis(self):
+        self.orcamento.horas = Decimal('10')
+        self.orcamento.horas_apontadas = Decimal('9')
+        self.orcamento.save(update_fields=['horas', 'horas_apontadas'])
+        self.criar_atividade(user=self.user, criado_por=self.user, titulo='Com saldo')
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('horas:agenda'), {'mes': '2026-06'})
+        card = response.content.decode().split('Com saldo', 1)[0].rsplit('<div class="agenda-event', 1)[-1]
+
+        self.assertNotIn('is-out-of-hours', card.split('">', 1)[0])
+        self.assertContains(response, 'HRS DIS: 01:00')
 
     def test_card_agenda_exibe_botao_apontar_com_data_e_orcamento(self):
         atividade = self.criar_atividade(

@@ -10,7 +10,7 @@
     <input type="hidden" name="submission_mode" id="submission-mode" value="manual">
     <div class="timer-display idle" id="timer-display">00:00:00</div>
 
-    <div class="form-row">
+    <div class="form-row triple">
       <div class="field">
         <label for="{{ form.data.id_for_label }}">Data</label>
         {{ form.data }}
@@ -21,13 +21,25 @@
         {{ form.orcamento }}
         {% for error in form.orcamento.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
       </div>
+      <div class="field">
+        <label for="orcamento-horas">Quantidade de Horas do Orçamento</label>
+        <input type="text" id="orcamento-horas" placeholder="—" readonly class="mono-accent">
+      </div>
     </div>
 
-    <div class="form-row single">
+    <div class="form-row triple">
       <div class="field">
         <label for="{{ form.fase.id_for_label }}">Fase</label>
         {{ form.fase }}
         {% for error in form.fase.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
+        <label for="orcamento-horas-apontadas">Quantidade de Horas Apontadas</label>
+        <input type="text" id="orcamento-horas-apontadas" placeholder="—" readonly class="mono-accent">
+      </div>
+      <div class="field">
+        <label for="orcamento-horas-disponiveis">Quantidade de Horas Disponíveis</label>
+        <input type="text" id="orcamento-horas-disponiveis" placeholder="—" readonly class="mono-accent">
       </div>
     </div>
 
@@ -129,6 +141,10 @@
     const startField = document.getElementById('{{ form.hora_inicio.id_for_label }}');
     const endField = document.getElementById('{{ form.hora_fim.id_for_label }}');
     const dateField = document.getElementById('{{ form.data.id_for_label }}');
+    const budgetField = document.getElementById('{{ form.orcamento.id_for_label }}');
+    const budgetHoursField = document.getElementById('orcamento-horas');
+    const budgetUsedHoursField = document.getElementById('orcamento-horas-apontadas');
+    const budgetAvailableHoursField = document.getElementById('orcamento-horas-disponiveis');
     const totalField = document.getElementById('f-total');
     const timerForm = document.getElementById('timer-form');
     const submissionModeField = document.getElementById('submission-mode');
@@ -167,6 +183,13 @@
 
     function updateTotal() {
       totalField.value = diffHours(startField.value, endField.value);
+    }
+
+    function updateBudgetHours() {
+      const selectedOption = budgetField.options[budgetField.selectedIndex];
+      budgetHoursField.value = selectedOption?.dataset.horas || '';
+      budgetUsedHoursField.value = selectedOption?.dataset.horasApontadas || '';
+      budgetAvailableHoursField.value = selectedOption?.dataset.horasDisponiveis || '';
     }
 
     function tickTimer() {
@@ -231,9 +254,11 @@
 
     startField.addEventListener('change', updateTotal);
     endField.addEventListener('change', updateTotal);
+    budgetField.addEventListener('change', updateBudgetHours);
     if (!dateField.value) {
       dateField.value = nowDateValue();
     }
     updateTotal();
+    updateBudgetHours();
   </script>
 {% endblock %}

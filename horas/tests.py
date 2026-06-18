@@ -1747,6 +1747,11 @@ class EstimativasViewTests(AuthenticatedTestCase):
 
 
 class FasesViewTests(AuthenticatedTestCase):
+    def setUp(self):
+        super().setUp()
+        self.user.profile.is_gerente_projetos = True
+        self.user.profile.save(update_fields=['is_gerente_projetos'])
+
     def test_lista_fases_cadastradas(self):
         fase = Fase.objects.create(codigo='102', descricao='Comercial - Pós-Venda')
 
@@ -1781,6 +1786,39 @@ class FasesViewTests(AuthenticatedTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertFalse(Fase.objects.filter(pk=fase.pk).exists())
+
+    def test_usuario_comum_nao_ve_menu_fases(self):
+        self.user.profile.is_gerente_projetos = False
+        self.user.profile.save(update_fields=['is_gerente_projetos'])
+
+        response = self.client.get(reverse('horas:timer'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, reverse('horas:fases'))
+
+    def test_usuario_comum_nao_acessa_fases(self):
+        self.user.profile.is_gerente_projetos = False
+        self.user.profile.save(update_fields=['is_gerente_projetos'])
+
+        response_get = self.client.get(reverse('horas:fases'))
+        response_post = self.client.post(
+            reverse('horas:fases'),
+            data={'codigo': '303', 'descricao': 'Bloqueada'},
+        )
+
+        self.assertEqual(response_get.status_code, 403)
+        self.assertEqual(response_post.status_code, 403)
+        self.assertFalse(Fase.objects.filter(codigo='303').exists())
+
+    def test_usuario_comum_nao_remove_fase(self):
+        self.user.profile.is_gerente_projetos = False
+        self.user.profile.save(update_fields=['is_gerente_projetos'])
+        fase = Fase.objects.create(codigo='399', descricao='Protegida')
+
+        response = self.client.post(reverse('horas:fase_remover', args=[fase.pk]))
+
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(Fase.objects.filter(pk=fase.pk).exists())
 
 
 class UserProfileTests(TestCase):
@@ -1943,6 +1981,80 @@ class AgendaViewTests(TestCase):
         atividades = list(response.context['agenda_atividades'])
         self.assertEqual(len(atividades), 1)
         self.assertEqual(atividades[0].titulo, 'Planejamento GP')
+
+    def test_gerente_filtra_multiplos_usuarios_e_ve_agendas_agrupadas(self):
+        self.criar_atividade(user=self.user, criado_por=self.gp, titulo='Planejamento usuario')
+        self.criar_atividade(user=self.other_user, criado_por=self.gp, titulo='Planejamento outro')
+        self.client.force_login(self.gp)
+
+        response = self.client.get(
+            reverse('horas:agenda'),
+            {'mes': '2026-06', 'usuario': [self.user.pk, self.other_user.pk]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['agenda_compare_mode'])
+        self.assertEqual(
+            {selected_user.pk for selected_user in response.context['selected_users']},
+            {self.user.pk, self.other_user.pk},
+        )
+        atividades = list(response.context['agenda_atividades'])
+        self.assertEqual({atividade.titulo for atividade in atividades}, {'Planejamento usuario', 'Planejamento outro'})
+
+        day = next(
+            day
+            for week in response.context['agenda_weeks']
+            for day in week
+            if day['date'] == date(2026, 6, 10)
+        )
+        grupos = {group['user'].pk: [atividade.titulo for atividade in group['atividades']] for group in day['user_groups']}
+        self.assertEqual(grupos[self.user.pk], ['Planejamento usuario'])
+        self.assertEqual(grupos[self.other_user.pk], ['Planejamento outro'])
+        self.assertContains(response, self.user.username)
+        self.assertContains(response, self.other_user.username)
+        self.assertContains(response, 'data-user-picker')
+        self.assertNotContains(response, 'type="checkbox"')
+
+    def test_usuario_comum_ignora_filtro_multiusuario(self):
+        self.criar_atividade(user=self.user, criado_por=self.user, titulo='Minha atividade')
+        self.criar_atividade(user=self.other_user, criado_por=self.other_user, titulo='Atividade de outro')
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse('horas:agenda'),
+            {'mes': '2026-06', 'usuario': [self.user.pk, self.other_user.pk]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context['agenda_compare_mode'])
+        atividades = list(response.context['agenda_atividades'])
+        self.assertEqual(len(atividades), 1)
+        self.assertEqual(atividades[0].titulo, 'Minha atividade')
+
+    def test_filtro_multiusuario_mantem_usuarios_na_navegacao(self):
+        self.client.force_login(self.gp)
+
+        response = self.client.get(
+            reverse('horas:agenda'),
+            {'mes': '2026-06', 'usuario': [self.user.pk, self.other_user.pk]},
+        )
+
+        self.assertContains(response, 'mes=2026-05')
+        self.assertContains(response, f'usuario={self.user.pk}')
+        self.assertContains(response, f'usuario={self.other_user.pk}')
+        self.assertContains(response, 'mes=2026-07')
+
+    def test_nova_atividade_na_comparacao_nao_preseleciona_usuario(self):
+        self.client.force_login(self.gp)
+
+        response = self.client.get(
+            reverse('horas:agenda'),
+            {'mes': '2026-06', 'usuario': [self.user.pk, self.other_user.pk]},
+        )
+
+        self.assertContains(response, f'{reverse("horas:agenda_nova")}?mes=2026-06')
+        self.assertNotContains(response, f'{reverse("horas:agenda_nova")}?mes=2026-06&amp;usuario=')
+        self.assertContains(response, f'{reverse("horas:agenda_nova")}?data=2026-06-10&mes=2026-06')
 
     def test_gerente_cria_atividade_para_outro_usuario(self):
         self.client.force_login(self.gp)
@@ -2311,8 +2423,8 @@ class AgendaViewTests(TestCase):
 
         response = self.client.get(reverse('horas:agenda'), {'mes': '2026-06', 'usuario': self.user.pk})
 
-        self.assertContains(response, f'mes=2026-05&usuario={self.user.pk}')
-        self.assertContains(response, f'mes=2026-07&usuario={self.user.pk}')
+        self.assertContains(response, f'mes=2026-05&amp;usuario={self.user.pk}')
+        self.assertContains(response, f'mes=2026-07&amp;usuario={self.user.pk}')
 
     def test_formulario_edicao_mantem_remocao_em_form_separado(self):
         atividade = self.criar_atividade(user=self.user, criado_por=self.user)

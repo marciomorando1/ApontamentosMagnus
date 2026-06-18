@@ -9,9 +9,18 @@
     .agenda-topbar-left, .agenda-topbar-right, .agenda-filter-form { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
     .agenda-month-block { display: flex; flex-direction: column; gap: 4px; }
     .agenda-month-title { font-size: 30px; font-weight: 600; line-height: 1; }
+    .agenda-selected-users { display: flex; gap: 6px; flex-wrap: wrap; max-width: 520px; }
     .agenda-selected-user { padding: 9px 12px; border-radius: 999px; border: 1px solid var(--border); background: rgba(0,169,145,0.08); color: var(--accent); font-size: 12px; font-weight: 500; }
     .agenda-filter-form .field { min-width: 220px; margin-bottom: 0; }
     .agenda-filter-form .field label { min-height: 14px; display: block; }
+    .agenda-user-picker { position: relative; min-width: 260px; max-width: 420px; }
+    .agenda-user-picker-button { width: 100%; min-height: 42px; justify-content: space-between; text-align: left; color: var(--text); }
+    .agenda-user-picker-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .agenda-user-picker-menu { position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; right: 0; max-height: 260px; overflow: auto; display: none; padding: 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: 0 18px 36px rgba(0,0,0,0.34); }
+    .agenda-user-picker.is-open .agenda-user-picker-menu { display: flex; flex-direction: column; gap: 4px; }
+    .agenda-user-option { width: 100%; min-height: 32px; padding: 6px 9px; border: none; border-radius: 6px; background: transparent; color: var(--text); font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+    .agenda-user-option:hover { background: rgba(255,255,255,0.05); }
+    .agenda-user-option.is-selected { background: rgba(0,169,145,0.16); color: var(--accent); }
     .agenda-calendar-frame { border: 1px solid var(--border); border-radius: 16px; overflow: hidden; background: var(--surface); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.01); }
     .agenda-weekdays, .agenda-grid { display: grid !important; grid-template-columns: repeat(7, minmax(0, 1fr)) !important; }
     .agenda-weekdays div { padding: 12px 10px; background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01)); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
@@ -25,6 +34,10 @@
     .agenda-day.is-today .agenda-day-number { background: var(--accent); color: #0f0f0f; font-weight: 700; }
     .agenda-day-month { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
     .agenda-day-body { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+    .agenda-user-group { display: flex; flex-direction: column; gap: 6px; padding-top: 2px; }
+    .agenda-user-group + .agenda-user-group { margin-top: 6px; padding-top: 10px; border-top: 1px solid rgba(240,240,240,0.10); }
+    .agenda-user-group-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; font-weight: 600; color: var(--accent); }
+    .agenda-user-group-count { color: var(--muted); font-family: var(--mono); font-size: 10px; font-weight: 400; }
     .agenda-event { display: flex; flex-direction: column; border-radius: 8px; padding: 8px 10px; background: linear-gradient(180deg, rgba(106,166,184,0.30), rgba(106,166,184,0.18)); border: 1px solid rgba(106,166,184,0.22); transition: transform 0.12s ease, border-color 0.12s ease, background 0.12s ease; }
     .agenda-event:hover { transform: translateY(-1px); border-color: rgba(0,169,145,0.42); background: linear-gradient(180deg, rgba(0,169,145,0.24), rgba(0,169,145,0.14)); }
     .agenda-event.is-out-of-hours { background: linear-gradient(180deg, rgba(176,72,72,0.34), rgba(120,48,48,0.22)); border-color: rgba(255,118,118,0.38); }
@@ -41,21 +54,31 @@
     .agenda-empty-state { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; }
     @media (max-width: 700px) {
       .agenda-topbar, .agenda-topbar-left, .agenda-topbar-right, .agenda-filter-form { align-items: stretch; }
+      .agenda-selected-users, .agenda-filter-form, .agenda-filter-form .field, .agenda-user-picker { width: 100%; max-width: none; }
       .agenda-weekdays, .agenda-grid { grid-template-columns: 1fr !important; }
       .agenda-day { min-height: 0; }
     }
   </style>
+
   <section class="agenda-shell">
     <div class="agenda-topbar">
       <div class="agenda-topbar-left">
-        <a class="btn btn-ghost btn-sm" href="{% url 'horas:agenda' %}?mes={{ agenda_filters.mes_anterior }}{% if selected_user %}&usuario={{ selected_user.pk }}{% endif %}">‹</a>
-        <a class="btn btn-ghost btn-sm" href="{% url 'horas:agenda' %}?mes={{ agenda_filters.mes_proximo }}{% if selected_user %}&usuario={{ selected_user.pk }}{% endif %}">›</a>
+        <a class="btn btn-ghost btn-sm" href="{{ agenda_prev_url }}">&lt;</a>
+        <a class="btn btn-ghost btn-sm" href="{{ agenda_next_url }}">&gt;</a>
         <div class="agenda-month-block">
           <div class="section-label">Agenda</div>
           <h1 class="agenda-month-title">{{ agenda_filters.mes_label }}</h1>
         </div>
-        {% if selected_user %}
-          <div class="agenda-selected-user">Usuário: {{ selected_user.username }}</div>
+        {% if selected_users %}
+          <div class="agenda-selected-users">
+            {% if agenda_compare_mode %}
+              {% for agenda_user in selected_users %}
+                <div class="agenda-selected-user">{{ agenda_user.username }}</div>
+              {% endfor %}
+            {% else %}
+              <div class="agenda-selected-user">Usuário: {{ selected_user.username }}</div>
+            {% endif %}
+          </div>
         {% elif not is_gp %}
           <div class="agenda-selected-user">Usuário: {{ user.username }}</div>
         {% endif %}
@@ -66,19 +89,42 @@
           <form method="get" class="agenda-filter-form">
             <input type="hidden" name="mes" value="{{ agenda_filters.mes }}">
             <div class="field">
-              <label for="id_usuario">Usuário</label>
-              <select name="usuario" id="id_usuario">
-                <option value="">— selecione —</option>
-                {% for agenda_user in agenda_users %}
-                  <option value="{{ agenda_user.pk }}" {% if selected_user and agenda_user.pk == selected_user.pk %}selected{% endif %}>{{ agenda_user.username }}</option>
-                {% endfor %}
-              </select>
+              <label for="id_usuario">Usuários</label>
+              <div class="agenda-user-picker" data-user-picker>
+                <button class="btn btn-ghost agenda-user-picker-button" type="button" id="id_usuario" data-user-picker-button>
+                  <span class="agenda-user-picker-label" data-user-picker-label>
+                    {% if selected_users %}
+                      {{ selected_users|length }} selecionado{% if selected_users|length != 1 %}s{% endif %}
+                    {% else %}
+                      — selecione —
+                    {% endif %}
+                  </span>
+                  <span>▾</span>
+                </button>
+                <div class="agenda-user-picker-menu" data-user-picker-menu>
+                  {% for agenda_user in agenda_users %}
+                    <button
+                      class="agenda-user-option{% if agenda_user.pk in selected_user_ids %} is-selected{% endif %}"
+                      type="button"
+                      data-user-option
+                      data-value="{{ agenda_user.pk }}"
+                      data-label="{{ agenda_user.username }}"
+                    >{{ agenda_user.username }}</button>
+                  {% endfor %}
+                </div>
+                <div data-user-picker-inputs>
+                  {% for agenda_user in selected_users %}
+                    <input type="hidden" name="usuario" value="{{ agenda_user.pk }}">
+                  {% endfor %}
+                </div>
+              </div>
             </div>
             <button class="btn btn-primary" type="submit">Filtrar</button>
+            <a class="btn btn-ghost" href="{% url 'horas:agenda' %}?mes={{ agenda_filters.mes }}">Limpar</a>
           </form>
         {% endif %}
 
-        <a class="btn btn-primary" href="{% url 'horas:agenda_nova' %}{% if agenda_filters.mes %}?mes={{ agenda_filters.mes }}{% if selected_user %}&usuario={{ selected_user.pk }}{% endif %}{% endif %}">Nova atividade</a>
+        <a class="btn btn-primary" href="{{ agenda_create_url }}">Nova atividade</a>
       </div>
     </div>
 
@@ -110,42 +156,27 @@
                   {% endif %}
                 </header>
                 <div class="agenda-day-body">
-                  {% for atividade in day.atividades %}
-                    <div class="agenda-event{% if atividade.can_manage %} is-editable{% endif %}{% if atividade.orcamento.horas_disponiveis <= 0 %} is-out-of-hours{% endif %}">
-                      {% if atividade.can_manage %}
-                        <a class="agenda-event-title" href="{% url 'horas:agenda_editar' atividade.pk %}">{{ atividade.titulo }}</a>
-                      {% else %}
-                        <div class="agenda-event-title">{{ atividade.titulo }}</div>
-                      {% endif %}
-                      <div class="agenda-event-subtitle">{{ atividade.cliente }}</div>
-                      <div class="agenda-event-meta">
-                        {% if atividade.numero_chamado %}<span>Chamado {{ atividade.numero_chamado }}</span>{% endif %}
-                        <span>{{ atividade.orcamento.codigo }}</span>
-                        {% if atividade.hora_inicio and atividade.hora_fim %}
-                          <span>{{ atividade.hora_inicio|time:'H:i' }} - {{ atividade.hora_fim|time:'H:i' }}</span>
-                        {% endif %}
-                        {% if atividade.total_horas_maximo is not None %}
-                          <span>Máx. {{ atividade.total_horas_maximo_formatado }}</span>
-                        {% endif %}
-                        <span>HRS APT: {{ atividade.orcamento.horas_apontadas_formatadas }}</span>
-                        <span>HRS DIS: {{ atividade.orcamento.horas_disponiveis_formatadas }}</span>
+                  {% if agenda_compare_mode %}
+                    {% for user_group in day.user_groups %}
+                      <div class="agenda-user-group">
+                        <div class="agenda-user-group-title">
+                          <span>{{ user_group.user.username }}</span>
+                          <span class="agenda-user-group-count">{{ user_group.atividades|length }}</span>
+                        </div>
+                        {% for atividade in user_group.atividades %}
+                          {% include 'horas/_agenda_event_card.html' with atividade=atividade day=day %}
+                        {% empty %}
+                          <div class="agenda-empty-slot">Sem atividades</div>
+                        {% endfor %}
                       </div>
-                      <div class="agenda-event-actions">
-                        {% if atividade.can_manage %}
-                          <a
-                            class="btn-inline agenda-edit-button"
-                            href="{% url 'horas:agenda_editar' atividade.pk %}"
-                          >Editar</a>
-                        {% endif %}
-                        <a
-                          class="btn btn-primary agenda-point-button"
-                          href="{% url 'horas:timer' %}?data={{ day.date|date:'Y-m-d' }}&orcamento={{ atividade.orcamento_id }}"
-                        >Apontar</a>
-                      </div>
-                    </div>
-                  {% empty %}
-                    <div class="agenda-empty-slot">Sem atividades</div>
-                  {% endfor %}
+                    {% endfor %}
+                  {% else %}
+                    {% for atividade in day.atividades %}
+                      {% include 'horas/_agenda_event_card.html' with atividade=atividade day=day %}
+                    {% empty %}
+                      <div class="agenda-empty-slot">Sem atividades</div>
+                    {% endfor %}
+                  {% endif %}
                 </div>
               </section>
             {% endfor %}
@@ -154,15 +185,67 @@
       </div>
     {% endif %}
   </section>
+
   <script>
     document.addEventListener('DOMContentLoaded', function () {
+      document.querySelectorAll('[data-user-picker]').forEach(function (picker) {
+        var button = picker.querySelector('[data-user-picker-button]');
+        var label = picker.querySelector('[data-user-picker-label]');
+        var inputs = picker.querySelector('[data-user-picker-inputs]');
+        var options = Array.from(picker.querySelectorAll('[data-user-option]'));
+
+        function selectedOptions() {
+          return options.filter(function (option) {
+            return option.classList.contains('is-selected');
+          });
+        }
+
+        function syncPicker() {
+          var selected = selectedOptions();
+          inputs.innerHTML = '';
+          selected.forEach(function (option) {
+            var input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'usuario';
+            input.value = option.getAttribute('data-value');
+            inputs.appendChild(input);
+          });
+
+          if (!selected.length) {
+            label.textContent = '— selecione —';
+          } else if (selected.length === 1) {
+            label.textContent = selected[0].getAttribute('data-label');
+          } else {
+            label.textContent = selected.length + ' selecionados';
+          }
+        }
+
+        button.addEventListener('click', function () {
+          picker.classList.toggle('is-open');
+        });
+
+        options.forEach(function (option) {
+          option.addEventListener('click', function () {
+            option.classList.toggle('is-selected');
+            syncPicker();
+          });
+        });
+
+        document.addEventListener('click', function (event) {
+          if (!picker.contains(event.target)) {
+            picker.classList.remove('is-open');
+          }
+        });
+
+        syncPicker();
+      });
+
       document.querySelectorAll('.agenda-day').forEach(function (el) {
         var href = el.getAttribute('data-href');
         if (!href) return;
         el.style.cursor = 'pointer';
         el.addEventListener('click', function (e) {
-          // don't override clicks on inner links or buttons
-          if (e.target.closest('a') || e.target.closest('button')) return;
+          if (e.target.closest('a') || e.target.closest('button') || e.target.closest('input')) return;
           window.location.href = href;
         });
       });

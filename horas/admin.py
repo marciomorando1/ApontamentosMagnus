@@ -13,7 +13,7 @@ class UserProfileInline(admin.StackedInline):
     can_delete = False
     extra = 0
     fk_name = 'user'
-    fields = ('is_gerente_projetos', 'must_change_password')
+    fields = ('is_gerente_projetos', 'is_pmo', 'must_change_password')
 
 
 class UserAdmin(DjangoUserAdmin):
@@ -46,12 +46,18 @@ class OrcamentoAdmin(admin.ModelAdmin):
         'horas_apontadas_formatadas',
         'horas_disponiveis_formatadas',
         'responsavel',
+        'pmo',
         'ativo',
         'criado_em',
     )
-    search_fields = ('codigo', 'codigo_cliente', 'numero_chamado', 'nome', 'responsavel__username')
-    list_filter = ('ativo', 'responsavel')
+    search_fields = ('codigo', 'codigo_cliente', 'numero_chamado', 'nome', 'responsavel__username', 'pmo__username')
+    list_filter = ('ativo', 'responsavel', 'pmo')
     readonly_fields = ('horas_adicionais', 'horas_apontadas')
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == 'pmo':
+            kwargs['queryset'] = User.objects.filter(profile__is_pmo=True).order_by('username')
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     def save_model(self, request, obj, form, change):
         if not change and not obj.responsavel_id:
@@ -98,8 +104,8 @@ class SolicitacaoHorasAdmin(admin.ModelAdmin):
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
-    list_display = ('user', 'is_gerente_projetos', 'must_change_password')
-    list_filter = ('is_gerente_projetos', 'must_change_password')
+    list_display = ('user', 'is_gerente_projetos', 'is_pmo', 'must_change_password')
+    list_filter = ('is_gerente_projetos', 'is_pmo', 'must_change_password')
     search_fields = ('user__username',)
 
 

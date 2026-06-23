@@ -808,6 +808,7 @@ class AuthenticationFlowTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'must_change_password')
+        self.assertContains(response, 'is_pmo')
 
 
 class OrcamentosViewTests(AuthenticatedTestCase):
@@ -816,12 +817,18 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         'cliente',
         'chamado',
         'descricao',
+        'qtd_horas',
+        'pmo',
     ]
 
     def setUp(self):
         super().setUp()
         self.user.profile.is_gerente_projetos = True
         self.user.profile.save(update_fields=['is_gerente_projetos'])
+        self.pmo_user = User.objects.create_user(username='pmo-user', password='senha-segura')
+        self.pmo_user.profile.is_pmo = True
+        self.pmo_user.profile.save(update_fields=['is_pmo'])
+        self.non_pmo_user = User.objects.create_user(username='non-pmo-user', password='senha-segura')
 
     def importar_planilha(self, rows, filename='orcamentos.xlsx'):
         arquivo = SimpleUploadedFile(
@@ -843,6 +850,7 @@ class OrcamentosViewTests(AuthenticatedTestCase):
                 'numero_chamado': '300',
                 'nome': 'Projeto com chamado',
                 'horas': '12:30',
+                'pmo': self.pmo_user.pk,
             },
             follow=True,
         )
@@ -853,10 +861,39 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         self.assertEqual(orcamento.numero_chamado, '300')
         self.assertEqual(orcamento.horas, Decimal('12.50'))
         self.assertEqual(orcamento.responsavel, self.user)
+        self.assertEqual(orcamento.pmo, self.pmo_user)
         self.assertContains(response, '<td class="mono">200</td>', html=True)
         self.assertContains(response, '<td class="mono">300</td>', html=True)
         self.assertContains(response, '12:30')
         self.assertContains(response, self.user.username)
+        self.assertContains(response, self.pmo_user.username)
+
+    def test_campo_pmo_lista_apenas_usuarios_marcados_como_pmo(self):
+        response = self.client.get(reverse('horas:orcamentos'))
+
+        self.assertContains(response, f'<option value="{self.pmo_user.pk}">pmo-user</option>', html=True)
+        self.assertNotContains(response, f'<option value="{self.non_pmo_user.pk}">non-pmo-user</option>', html=True)
+
+    def test_rejeita_usuario_nao_pmo_no_orcamento(self):
+        response = self.client.post(
+            reverse('horas:orcamentos'),
+            data={
+                'codigo': '102',
+                'codigo_cliente': '202',
+                'numero_chamado': '302',
+                'nome': 'Projeto PMO invalido',
+                'horas': '12:00',
+                'pmo': self.non_pmo_user.pk,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFormError(
+            response.context['form'],
+            'pmo',
+            'Faça uma escolha válida. Sua escolha não é uma das disponíveis.',
+        )
+        self.assertFalse(Orcamento.objects.filter(codigo='102').exists())
 
     def test_quantidade_horas_aceita_digitos_sem_separador(self):
         response = self.client.post(
@@ -970,8 +1007,8 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         response = self.importar_planilha(
             [
                 self.headers_importacao,
-                ['1001', '2001', '3001', 'Projeto A'],
-                ['1002', '2002', '3002', 'Projeto B'],
+                ['1001', '2001', '3001', 'Projeto A', '12:30', self.pmo_user.username],
+                ['1002', '2002', '3002', 'Projeto B', '08:00', self.pmo_user.username],
             ]
         )
 
@@ -982,10 +1019,25 @@ class OrcamentosViewTests(AuthenticatedTestCase):
                 codigo_cliente='2001',
                 numero_chamado='3001',
                 nome='Projeto A',
+                horas=Decimal('12.50'),
+                pmo=self.pmo_user,
                 responsavel=self.user,
             ).exists()
         )
         self.assertTrue(Orcamento.objects.filter(codigo='1002').exists())
+
+    def test_importa_horas_formatadas_pelo_excel_como_fracao_de_dia(self):
+        response = self.importar_planilha(
+            [
+                self.headers_importacao,
+                ['1001', '2001', '3001', 'Projeto A', '0.75', self.pmo_user.username],
+                ['1002', '2002', '3002', 'Projeto B', '0.5', self.pmo_user.username],
+            ]
+        )
+
+        self.assertRedirects(response, reverse('horas:orcamentos'), fetch_redirect_response=False)
+        self.assertEqual(Orcamento.objects.get(codigo='1001').horas, Decimal('18.00'))
+        self.assertEqual(Orcamento.objects.get(codigo='1002').horas, Decimal('12.00'))
 
     def test_importacao_rejeita_cabecalhos_fora_de_ordem(self):
         response = self.importar_planilha(
@@ -1005,8 +1057,8 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         response = self.importar_planilha(
             [
                 self.headers_importacao,
-                ['1001', '2001', '3001', 'Duplicado'],
-                ['1002', '2002', '3002', 'Novo'],
+                ['1001', '2001', '3001', 'Duplicado', '12:30', self.pmo_user.username],
+                ['1002', '2002', '3002', 'Novo', '08:00', self.pmo_user.username],
             ]
         )
 
@@ -1018,8 +1070,8 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         response = self.importar_planilha(
             [
                 self.headers_importacao,
-                ['1001', '2001', '3001', 'Projeto A'],
-                ['1001', '2002', '3002', 'Projeto B'],
+                ['1001', '2001', '3001', 'Projeto A', '12:30', self.pmo_user.username],
+                ['1001', '2002', '3002', 'Projeto B', '08:00', self.pmo_user.username],
             ]
         )
 
@@ -1031,7 +1083,7 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         response = self.importar_planilha(
             [
                 self.headers_importacao,
-                ['ORC-1', 'CLI-1', 'CH-1', 'Inválido'],
+                ['ORC-1', 'CLI-1', 'CH-1', 'Inválido', '12:30', self.pmo_user.username],
             ]
         )
 
@@ -1040,6 +1092,30 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         self.assertContains(response, 'Código Cliente deve conter somente números')
         self.assertContains(response, 'Número do Chamado deve conter somente números')
         self.assertEqual(Orcamento.objects.count(), 0)
+
+    def test_importacao_rejeita_quantidade_horas_invalida(self):
+        response = self.importar_planilha(
+            [
+                self.headers_importacao,
+                ['1001', '2001', '3001', 'Projeto A', '12:75', self.pmo_user.username],
+            ]
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Quantidade de Horas deve estar no formato HH:MM')
+        self.assertFalse(Orcamento.objects.filter(codigo='1001').exists())
+
+    def test_importacao_rejeita_usuario_nao_marcado_como_pmo(self):
+        response = self.importar_planilha(
+            [
+                self.headers_importacao,
+                ['1001', '2001', '3001', 'Projeto A', '12:30', self.non_pmo_user.username],
+            ]
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'nao existe ou nao esta marcado como PMO')
+        self.assertFalse(Orcamento.objects.filter(codigo='1001').exists())
 
     def test_lista_exibe_opcao_editar_orcamento(self):
         orcamento = Orcamento.objects.create(codigo='1001', nome='Projeto', responsavel=self.user)
@@ -1082,6 +1158,7 @@ class OrcamentosViewTests(AuthenticatedTestCase):
                 'numero_chamado': '3002',
                 'nome': 'Projeto atualizado',
                 'horas': '12:45',
+                'pmo': self.pmo_user.pk,
             },
         )
 
@@ -1093,6 +1170,7 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         self.assertEqual(orcamento.nome, 'Projeto atualizado')
         self.assertEqual(orcamento.horas, Decimal('12.75'))
         self.assertEqual(orcamento.responsavel, self.user)
+        self.assertEqual(orcamento.pmo, self.pmo_user)
 
     def test_nao_permite_reduzir_horas_abaixo_do_total_apontado(self):
         orcamento = Orcamento.objects.create(
@@ -1827,6 +1905,7 @@ class UserProfileTests(TestCase):
 
         self.assertTrue(UserProfile.objects.filter(user=user).exists())
         self.assertFalse(user.profile.is_gerente_projetos)
+        self.assertFalse(user.profile.is_pmo)
         self.assertFalse(user.profile.must_change_password)
 
 

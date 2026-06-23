@@ -40,6 +40,13 @@ class Orcamento(models.Model):
         null=True,
         blank=True,
     )
+    pmo = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='orcamentos_pmo',
+        null=True,
+        blank=True,
+    )
     codigo = models.CharField(max_length=20, unique=True, validators=[somente_numeros_validator])
     codigo_cliente = models.CharField(max_length=50, blank=True, validators=[somente_numeros_validator])
     numero_chamado = models.CharField(max_length=100, blank=True, validators=[somente_numeros_validator])
@@ -90,7 +97,15 @@ class Orcamento(models.Model):
             return ''
         return self.responsavel.get_full_name() or self.responsavel.username
 
+    @property
+    def pmo_nome(self):
+        if not self.pmo:
+            return ''
+        return self.pmo.get_full_name() or self.pmo.username
+
     def clean(self):
+        if self.pmo_id and not getattr(getattr(self.pmo, 'profile', None), 'is_pmo', False):
+            raise ValidationError({'pmo': 'Selecione um usuario marcado como PMO.'})
         if self.total_horas_disponibilizadas < self.horas_apontadas:
             raise ValidationError(
                 {'horas': 'A quantidade de horas não pode ser menor que as horas já apontadas.'}
@@ -104,13 +119,19 @@ class UserProfile(models.Model):
         related_name='profile',
     )
     is_gerente_projetos = models.BooleanField(default=False)
+    is_pmo = models.BooleanField(default=False)
     must_change_password = models.BooleanField(
         'Exigir troca de senha no proximo login',
         default=False,
     )
 
     def __str__(self):
-        role = 'GP' if self.is_gerente_projetos else 'Usuario'
+        roles = []
+        if self.is_gerente_projetos:
+            roles.append('GP')
+        if self.is_pmo:
+            roles.append('PMO')
+        role = ', '.join(roles) if roles else 'Usuario'
         return f'{self.user} - {role}'
 
 

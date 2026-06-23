@@ -5,7 +5,7 @@ import unicodedata
 import zipfile
 from collections import defaultdict
 from datetime import date, datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlencode
@@ -35,6 +35,7 @@ from .forms import (
     EstimativaItemCreateFormSet,
     EstimativaItemFormSet,
     FaseForm,
+    DurationField,
     OrcamentoForm,
     OrcamentoImportForm,
     RegistroForm,
@@ -592,6 +593,8 @@ ORCAMENTO_IMPORT_HEADERS = [
     'cliente',
     'chamado',
     'descricao',
+    'qtd_horas',
+    'pmo',
 ]
 
 
@@ -643,6 +646,34 @@ def _read_orcamentos_xlsx(arquivo):
     return rows
 
 
+def _find_pmo_user(value):
+    lookup = _normalize_estimativa_text(value)
+    if not lookup:
+        return None
+
+    for user in User.objects.filter(profile__is_pmo=True).select_related('profile').order_by('username'):
+        user_keys = [
+            _normalize_estimativa_text(user.username),
+            _normalize_estimativa_text(user.get_full_name()),
+        ]
+        if lookup in user_keys:
+            return user
+    return None
+
+
+def _clean_orcamento_import_hours(value, field):
+    text = value.strip()
+    if ':' not in text:
+        try:
+            number = Decimal(text.replace(',', '.'))
+        except InvalidOperation:
+            pass
+        else:
+            if Decimal('0') < number <= Decimal('1') and ('.' in text or ',' in text):
+                return number * Decimal('24')
+    return field.clean(value)
+
+
 def _validate_orcamentos_import(rows):
     errors = []
     if not rows:
@@ -651,20 +682,25 @@ def _validate_orcamentos_import(rows):
     headers = [_normalize_estimativa_text(value) for value in rows[0]]
     if headers != ORCAMENTO_IMPORT_HEADERS:
         return [], [
-            'Os cabeçalhos devem estar nesta ordem: orcamento, cliente, chamado, descricao.'
+            'Os cabeçalhos devem estar nesta ordem: orcamento, cliente, chamado, descricao, qtd_horas, pmo.'
         ]
 
     existing_codes = set(Orcamento.objects.values_list('codigo', flat=True))
     imported_codes = set()
     orcamentos = []
+    horas_field = DurationField(required=True, compact_digits=True)
     for row_number, row in enumerate(rows[1:], start=2):
-        values = (row + ['', '', '', ''])[:4]
+        values = (row + ['', '', '', '', '', ''])[:6]
         if not any(values):
             continue
-        codigo, codigo_cliente, numero_chamado, nome = (value.strip() for value in values)
+        codigo, codigo_cliente, numero_chamado, nome, qtd_horas, pmo_text = (
+            value.strip() for value in values
+        )
         if not codigo:
             errors.append(f'Linha {row_number}: Código Orçamento é obrigatório.')
             continue
+        horas = None
+        pmo_user = None
         for label, value in (
             ('Código Orçamento', codigo),
             ('Código Cliente', codigo_cliente),
@@ -672,6 +708,22 @@ def _validate_orcamentos_import(rows):
         ):
             if value and not value.isdigit():
                 errors.append(f'Linha {row_number}: {label} deve conter somente números.')
+        if not qtd_horas:
+            errors.append(f'Linha {row_number}: Quantidade de Horas e obrigatoria.')
+        else:
+            try:
+                horas = _clean_orcamento_import_hours(qtd_horas, horas_field)
+            except ValidationError:
+                errors.append(f'Linha {row_number}: Quantidade de Horas deve estar no formato HH:MM.')
+            else:
+                if horas <= 0:
+                    errors.append(f'Linha {row_number}: Quantidade de Horas deve ser maior que zero.')
+        if not pmo_text:
+            errors.append(f'Linha {row_number}: PMO e obrigatorio.')
+        else:
+            pmo_user = _find_pmo_user(pmo_text)
+            if pmo_user is None:
+                errors.append(f'Linha {row_number}: PMO "{pmo_text}" nao existe ou nao esta marcado como PMO.')
         if codigo in existing_codes:
             errors.append(f'Linha {row_number}: o orçamento {codigo} já existe na base.')
         if codigo in imported_codes:
@@ -683,6 +735,8 @@ def _validate_orcamentos_import(rows):
                 codigo_cliente=codigo_cliente,
                 numero_chamado=numero_chamado,
                 nome=nome,
+                horas=horas or Decimal('0'),
+                pmo=pmo_user,
             )
         )
     if not orcamentos and not errors:
@@ -1298,7 +1352,7 @@ class OrcamentosView(
         context['form'] = kwargs.get('form') or OrcamentoForm()
         context['import_form'] = kwargs.get('import_form') or OrcamentoImportForm()
         context['import_errors'] = kwargs.get('import_errors') or []
-        context['orcamentos'] = Orcamento.objects.select_related('responsavel').order_by('codigo')
+        context['orcamentos'] = Orcamento.objects.select_related('responsavel', 'pmo').order_by('codigo')
         return context
 
     def post(self, request, *args, **kwargs):
@@ -1347,7 +1401,7 @@ class OrcamentoUpdateView(
 
     def dispatch(self, request, *args, **kwargs):
         self.orcamento = get_object_or_404(
-            Orcamento.objects.select_related('responsavel'),
+            Orcamento.objects.select_related('responsavel', 'pmo'),
             pk=kwargs['pk'],
             responsavel=request.user,
         )

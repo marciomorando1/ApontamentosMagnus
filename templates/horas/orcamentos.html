@@ -55,6 +55,13 @@
         <input id="orcamento-responsavel" type="text" value="{{ request.user.get_full_name|default:request.user.username }}" disabled>
       </div>
     </div>
+    <div class="form-row single">
+      <div class="field">
+        <label for="{{ form.pmo.id_for_label }}">PMO</label>
+        {{ form.pmo }}
+        {% for error in form.pmo.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+    </div>
     <button class="btn btn-primary btn-sm" type="submit">Adicionar</button>
   </form>
 
@@ -63,7 +70,7 @@
     <input type="hidden" name="action" value="importar">
     <h3>Importar orçamentos</h3>
     <div class="empty-inline" style="margin-bottom:12px;">
-      A primeira linha deve conter, nesta ordem: orcamento, cliente, chamado, descricao.
+      A primeira linha deve conter, nesta ordem: orcamento, cliente, chamado, descricao, qtd_horas, pmo.
     </div>
     <div class="form-row single">
       <div class="field">
@@ -92,6 +99,7 @@
         <col class="col-horas">
         <col class="col-horas">
         <col class="col-responsavel">
+        <col class="col-pmo">
         <col class="col-status">
         <col class="col-acoes">
       </colgroup>
@@ -106,6 +114,7 @@
           <th>Horas Apontadas</th>
           <th>Horas Disponíveis</th>
           <th>Responsável</th>
+          <th>PMO</th>
           <th>Status</th>
           <th></th>
         </tr>
@@ -122,6 +131,7 @@
             <td class="mono">{{ orcamento.horas_apontadas_formatadas }}</td>
             <td class="mono accent-text">{{ orcamento.horas_disponiveis_formatadas }}</td>
             <td>{{ orcamento.responsavel_nome|default:'—' }}</td>
+            <td>{{ orcamento.pmo_nome|default:'—' }}</td>
             <td>
               {% if orcamento.ativo %}
                 <span class="status-badge status-active">Ativo</span>
@@ -143,7 +153,7 @@
           </tr>
         {% empty %}
           <tr>
-            <td colspan="11"><div class="empty-inline">Nenhum orçamento cadastrado.</div></td>
+            <td colspan="12"><div class="empty-inline">Nenhum orçamento cadastrado.</div></td>
           </tr>
         {% endfor %}
       </tbody>

@@ -199,11 +199,12 @@ table { width: 100%; border-collapse: collapse; }
 .orcamentos-table .col-orcamento { width: 7%; }
 .orcamentos-table .col-cliente { width: 8%; }
 .orcamentos-table .col-chamado { width: 9%; }
-.orcamentos-table .col-descricao { width: 14%; }
+.orcamentos-table .col-descricao { width: 12%; }
 .orcamentos-table .col-horas { width: 7%; }
-.orcamentos-table .col-responsavel { width: 13%; }
+.orcamentos-table .col-responsavel { width: 11%; }
+.orcamentos-table .col-pmo { width: 9%; }
 .orcamentos-table .col-status { width: 7%; }
-.orcamentos-table .col-acoes { width: 10%; }
+.orcamentos-table .col-acoes { width: 8%; }
 .orcamentos-table th {
   padding: 8px 5px;
   font-size: 9px;
@@ -271,8 +272,9 @@ table { width: 100%; border-collapse: collapse; }
   .orcamentos-table td:nth-child(7)::before { content: 'Apontadas'; }
   .orcamentos-table td:nth-child(8)::before { content: 'Disponíveis'; }
   .orcamentos-table td:nth-child(9)::before { content: 'Responsável'; }
-  .orcamentos-table td:nth-child(10)::before { content: 'Status'; }
-  .orcamentos-table td:nth-child(11)::before { content: 'Ações'; }
+  .orcamentos-table td:nth-child(10)::before { content: 'PMO'; }
+  .orcamentos-table td:nth-child(11)::before { content: 'Status'; }
+  .orcamentos-table td:nth-child(12)::before { content: 'Ações'; }
   .orcamento-actions { justify-content: flex-start; }
 }
 thead { background: var(--surface2); }

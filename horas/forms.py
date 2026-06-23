@@ -215,7 +215,7 @@ class OrcamentoForm(forms.ModelForm):
 
     class Meta:
         model = Orcamento
-        fields = ['codigo', 'codigo_cliente', 'numero_chamado', 'nome', 'horas']
+        fields = ['codigo', 'codigo_cliente', 'numero_chamado', 'nome', 'horas', 'pmo']
         error_messages = {
             'codigo': {
                 'unique': 'Já existe um orçamento com este código.',
@@ -226,6 +226,12 @@ class OrcamentoForm(forms.ModelForm):
             'codigo_cliente': forms.TextInput(attrs={'inputmode': 'numeric', 'pattern': r'\d*', 'class': 'numeric-only'}),
             'numero_chamado': forms.TextInput(attrs={'inputmode': 'numeric', 'pattern': r'\d*', 'class': 'numeric-only'}),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['pmo'].label = 'PMO'
+        self.fields['pmo'].queryset = User.objects.filter(profile__is_pmo=True).order_by('username')
+        self.fields['pmo'].empty_label = '— selecione —'
 
     def clean_codigo(self):
         return self.cleaned_data['codigo'].strip()

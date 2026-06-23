@@ -60,6 +60,13 @@
         <input id="orcamento-responsavel" type="text" value="{{ orcamento.responsavel_nome }}" disabled>
       </div>
     </div>
+    <div class="form-row single">
+      <div class="field">
+        <label for="{{ form.pmo.id_for_label }}">PMO</label>
+        {{ form.pmo }}
+        {% for error in form.pmo.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+    </div>
     <div class="btn-row">
       <button class="btn btn-primary" type="submit">Salvar alterações</button>
       <a class="btn btn-ghost" href="{% url 'horas:orcamentos' %}">Cancelar</a>

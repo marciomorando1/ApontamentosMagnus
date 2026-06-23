@@ -38,4 +38,6 @@ urlpatterns = [
     path('orcamentos/<int:pk>/remover/', views.OrcamentoDeleteView.as_view(), name='orcamento_remover'),
     path('fases/', views.FasesView.as_view(), name='fases'),
     path('fases/<int:pk>/remover/', views.FaseDeleteView.as_view(), name='fase_remover'),
+    path('servicos/', views.ServicosView.as_view(), name='servicos'),
+    path('servicos/<int:pk>/remover/', views.ServicoDeleteView.as_view(), name='servico_remover'),
 ]

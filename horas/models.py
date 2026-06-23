@@ -32,6 +32,18 @@ class Fase(models.Model):
         return f'{self.codigo} - {self.descricao}'
 
 
+class Servico(models.Model):
+    codigo = models.CharField(max_length=20, unique=True)
+    descricao = models.CharField(max_length=200)
+    criado_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['codigo']
+
+    def __str__(self):
+        return f'{self.codigo} - {self.descricao}'
+
+
 class Orcamento(models.Model):
     responsavel = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -120,6 +132,8 @@ class UserProfile(models.Model):
     )
     is_gerente_projetos = models.BooleanField(default=False)
     is_pmo = models.BooleanField(default=False)
+    exportacsv = models.BooleanField('Exporta CSV', default=False)
+    codigoerp = models.PositiveIntegerField('Código ERP', default=0)
     must_change_password = models.BooleanField(
         'Exigir troca de senha no proximo login',
         default=False,
@@ -282,6 +296,12 @@ class AgendaAtividade(models.Model):
         on_delete=models.PROTECT,
         related_name='agenda_atividades',
     )
+    servico = models.ForeignKey(
+        Servico,
+        on_delete=models.PROTECT,
+        related_name='agenda_atividades',
+        null=True,
+    )
     produto = models.CharField(max_length=200, blank=True)
     titulo = models.CharField(max_length=200)
     descricao = models.TextField(blank=True)
@@ -322,6 +342,8 @@ class AgendaAtividade(models.Model):
             errors['hora_fim'] = 'A hora final deve ser maior que a hora inicial.'
         if self.total_horas_maximo is not None and self.total_horas_maximo <= 0:
             errors['total_horas_maximo'] = 'O total de horas máximo deve ser maior que zero.'
+        if not self.servico_id:
+            errors['servico'] = 'Selecione um serviço.'
         if errors:
             raise ValidationError(errors)
 
@@ -351,6 +373,14 @@ class Registro(models.Model):
         Fase,
         on_delete=models.PROTECT,
         related_name='registros',
+        null=True,
+        blank=True,
+    )
+    servico = models.ForeignKey(
+        Servico,
+        on_delete=models.PROTECT,
+        related_name='registros',
+        null=True,
     )
     data = models.DateField()
     hora_inicio = models.TimeField()
@@ -405,8 +435,8 @@ class Registro(models.Model):
             errors['hora_fim'] = 'A hora final deve ser maior que a hora inicial.'
         if self.orcamento_id and not self.orcamento.ativo:
             errors['orcamento'] = 'Selecione um orçamento ativo.'
-        if not self.fase_id:
-            errors['fase'] = 'Selecione uma fase.'
+        if not self.servico_id:
+            errors['servico'] = 'Selecione um serviço.'
         if errors:
             raise ValidationError(errors)
 

@@ -40,6 +40,7 @@ from .forms import (
     OrcamentoImportForm,
     RegistroForm,
     RequiredPasswordChangeForm,
+    ServicoForm,
     SolicitacaoHorasForm,
 )
 from .models import (
@@ -48,6 +49,7 @@ from .models import (
     Fase,
     Orcamento,
     Registro,
+    Servico,
     SolicitacaoHoras,
     UserProfile,
 )
@@ -128,8 +130,11 @@ def _parse_month(value):
         return date.today().replace(day=1)
 
 
-def _base_registros_queryset(user):
-    return Registro.objects.select_related('orcamento', 'fase').filter(user=user)
+def _base_registros_queryset(user, *, include_all_users=False):
+    queryset = Registro.objects.select_related('user', 'user__profile', 'orcamento', 'fase', 'servico')
+    if include_all_users:
+        return queryset
+    return queryset.filter(user=user)
 
 
 def _user_is_gp(user):
@@ -137,8 +142,13 @@ def _user_is_gp(user):
     return profile.is_gerente_projetos
 
 
+def _user_can_export_csv(user):
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+    return profile.exportacsv
+
+
 def _base_agenda_queryset():
-    return AgendaAtividade.objects.select_related('user', 'criado_por', 'orcamento')
+    return AgendaAtividade.objects.select_related('user', 'criado_por', 'orcamento', 'servico')
 
 
 def _agenda_manage_queryset(user):
@@ -233,11 +243,13 @@ def _agenda_filter_context(month_start, selected_users):
     }
 
 
-def _filter_registros(request):
-    queryset = _base_registros_queryset(request.user)
+def _filter_registros(request, *, allow_usuario_filter=False):
+    can_filter_usuario = allow_usuario_filter and _user_can_export_csv(request.user)
+    queryset = _base_registros_queryset(request.user, include_all_users=can_filter_usuario)
     data_inicial = _parse_date(request.GET.get('de'))
     data_final = _parse_date(request.GET.get('ate'))
     orcamento_id = request.GET.get('orcamento')
+    usuario_id = request.GET.get('usuario') if can_filter_usuario else ''
 
     if not data_inicial and not data_final:
         data_inicial = date.today()
@@ -253,8 +265,16 @@ def _filter_registros(request):
         queryset = queryset.filter(data__lte=data_final)
     if orcamento_id:
         queryset = queryset.filter(orcamento_id=orcamento_id)
+    if usuario_id:
+        queryset = queryset.filter(user_id=usuario_id)
 
-    return queryset.order_by('data', 'hora_inicio', 'criado_em'), data_inicial, data_final, orcamento_id
+    return (
+        queryset.order_by('data', 'hora_inicio', 'criado_em'),
+        data_inicial,
+        data_final,
+        orcamento_id,
+        usuario_id,
+    )
 
 
 def _query_string(request):
@@ -954,10 +974,13 @@ class TimerView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
             initial = {}
             data_inicial = _parse_date(self.request.GET.get('data'))
             orcamento_id = self.request.GET.get('orcamento')
+            servico_id = self.request.GET.get('servico')
             if data_inicial:
                 initial['data'] = data_inicial
             if orcamento_id and Orcamento.objects.filter(pk=orcamento_id).exists():
                 initial['orcamento'] = orcamento_id
+            if servico_id and Servico.objects.filter(pk=servico_id).exists():
+                initial['servico'] = servico_id
             form = RegistroForm(initial=initial)
         context['form'] = form
         context['extra_rows'] = kwargs.get('extra_rows') or []
@@ -988,6 +1011,7 @@ class TimerView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
             'data': request.POST.get('data', ''),
             'orcamento': request.POST.get('orcamento', ''),
             'fase': request.POST.get('fase', ''),
+            'servico': request.POST.get('servico', ''),
         }
 
         for row in rows:
@@ -1029,13 +1053,20 @@ class RegistrosView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        registros, data_inicial, data_final, orcamento_id = _filter_registros(self.request)
+        registros, data_inicial, data_final, orcamento_id, usuario_id = _filter_registros(
+            self.request,
+            allow_usuario_filter=True,
+        )
+        can_filter_usuario = _user_can_export_csv(self.request.user)
         context['section'] = 'registros'
         context['registros'] = registros
+        context['usuarios_filtro'] = User.objects.order_by('username') if can_filter_usuario else []
+        context['can_filter_usuario'] = can_filter_usuario
         context['filtros'] = {
             'de': data_inicial.isoformat() if data_inicial else '',
             'ate': data_final.isoformat() if data_final else '',
             'orcamento': orcamento_id or '',
+            'usuario': usuario_id or '',
         }
         context['query_string'] = _query_string(self.request)
         return context
@@ -1126,6 +1157,8 @@ class RegistroUpdateView(AuthenticatedViewMixin, SidebarContextMixin, TemplateVi
 
     def dispatch(self, request, *args, **kwargs):
         self.registro = get_object_or_404(_base_registros_queryset(request.user), pk=kwargs['pk'])
+        if self.registro.processado == Registro.PROCESSADO_SIM:
+            raise PermissionDenied
         return super().dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
@@ -1161,6 +1194,8 @@ class RegistroUpdateView(AuthenticatedViewMixin, SidebarContextMixin, TemplateVi
 class RegistroDeleteView(View):
     def post(self, request, pk):
         registro = get_object_or_404(_base_registros_queryset(request.user), pk=pk)
+        if registro.processado == Registro.PROCESSADO_SIM:
+            raise PermissionDenied
         registro.delete()
         messages.success(request, 'Registro removido.')
         query = _query_string(request)
@@ -1173,13 +1208,13 @@ class RegistroDeleteView(View):
 @method_decorator(login_required(login_url='login'), name='dispatch')
 class RegistroProcessarView(View):
     def post(self, request, pk):
-        registro = get_object_or_404(_base_registros_queryset(request.user), pk=pk)
+        if not _user_can_export_csv(request.user):
+            raise PermissionDenied
+        registro = get_object_or_404(_base_registros_queryset(request.user, include_all_users=True), pk=pk)
         if registro.processado == Registro.PROCESSADO_SIM:
-            registro.processado = Registro.PROCESSADO_NAO
-            messages.success(request, 'Registro desmarcado como processado.')
-        else:
-            registro.processado = Registro.PROCESSADO_SIM
-            messages.success(request, 'Registro marcado como processado.')
+            raise PermissionDenied
+        registro.processado = Registro.PROCESSADO_SIM
+        messages.success(request, 'Registro marcado como processado.')
         registro.save(update_fields=['processado', 'atualizado_em'])
 
         query = _query_string(request)
@@ -1194,7 +1229,7 @@ class ResumoView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        registros, data_inicial, data_final, _ = _filter_registros(self.request)
+        registros, data_inicial, data_final, _, _ = _filter_registros(self.request)
         registros_list = list(registros)
         total_horas = sum(registro.total_horas for registro in registros_list)
         dias_trabalhados = len({registro.data for registro in registros_list})
@@ -1293,7 +1328,10 @@ class SolicitacaoHorasDecisaoView(
 ):
     def post(self, request, pk):
         decisao = request.POST.get('decisao')
-        motivo_reprovacao = request.POST.get('motivo_reprovacao', '').strip()
+        observacao = request.POST.get(
+            'observacao',
+            request.POST.get('motivo_reprovacao', ''),
+        ).strip()
 
         with transaction.atomic():
             solicitacao = get_object_or_404(
@@ -1306,18 +1344,15 @@ class SolicitacaoHorasDecisaoView(
                 return redirect('horas:solicitacoes_horas_pendentes')
 
             if decisao == 'aprovar':
-                orcamento = Orcamento.objects.select_for_update().get(pk=solicitacao.orcamento_id)
-                orcamento.horas_adicionais += solicitacao.quantidade_horas
-                orcamento.save(update_fields=['horas_adicionais'])
                 solicitacao.situacao = SolicitacaoHoras.SITUACAO_APROVADO
-                solicitacao.motivo_reprovacao = ''
-                mensagem = 'Solicitação aprovada e horas adicionais liberadas.'
+                solicitacao.motivo_reprovacao = observacao
+                mensagem = 'Solicitação aprovada.'
             elif decisao == 'reprovar':
-                if not motivo_reprovacao:
-                    messages.error(request, 'Informe o motivo para reprovar a solicitação.')
+                if not observacao:
+                    messages.error(request, 'Informe a observação para reprovar a solicitação.')
                     return redirect('horas:solicitacoes_horas_pendentes')
                 solicitacao.situacao = SolicitacaoHoras.SITUACAO_REPROVADO
-                solicitacao.motivo_reprovacao = motivo_reprovacao
+                solicitacao.motivo_reprovacao = observacao
                 mensagem = 'Solicitação reprovada.'
             else:
                 messages.error(request, 'Decisão inválida.')
@@ -1446,6 +1481,27 @@ class FasesView(GerenteProjetosRequiredMixin, AuthenticatedViewMixin, SidebarCon
         return self.render_to_response(self.get_context_data(form=form))
 
 
+class ServicosView(GerenteProjetosRequiredMixin, AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
+    template_name = 'horas/servicos.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['section'] = 'servicos'
+        context['form'] = kwargs.get('form') or ServicoForm()
+        context['servicos'] = Servico.objects.order_by('codigo')
+        return context
+
+    def post(self, request, *args, **kwargs):
+        form = ServicoForm(request.POST)
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Serviço adicionado com sucesso.')
+            return redirect('horas:servicos')
+
+        messages.error(request, 'Corrija os campos destacados antes de adicionar o serviço.')
+        return self.render_to_response(self.get_context_data(form=form))
+
+
 class OrcamentoDeleteView(GerenteProjetosRequiredMixin, AuthenticatedViewMixin, View):
     def post(self, request, pk):
         orcamento = get_object_or_404(Orcamento, pk=pk, responsavel=request.user)
@@ -1470,25 +1526,61 @@ class FaseDeleteView(GerenteProjetosRequiredMixin, AuthenticatedViewMixin, View)
         return redirect('horas:fases')
 
 
+class ServicoDeleteView(GerenteProjetosRequiredMixin, AuthenticatedViewMixin, View):
+    def post(self, request, pk):
+        servico = get_object_or_404(Servico, pk=pk)
+        servico.delete()
+        messages.success(request, 'Serviço removido.')
+        return redirect('horas:servicos')
+
+
 @login_required(login_url='login')
 def exportar_registros_csv(request):
-    registros, _, _, _ = _filter_registros(request)
+    if not _user_can_export_csv(request.user):
+        raise PermissionDenied
+
+    registros, _, _, _, _ = _filter_registros(request, allow_usuario_filter=True)
+    with transaction.atomic():
+        registros_exportados = list(
+            registros.select_for_update().filter(processado=Registro.PROCESSADO_NAO)
+        )
+        if not registros_exportados:
+            messages.warning(request, 'Nenhum registro pendente para exportar.')
+            return redirect('horas:registros')
+
+        Registro.objects.filter(
+            pk__in=[registro.pk for registro in registros_exportados],
+        ).update(processado=Registro.PROCESSADO_SIM, atualizado_em=timezone.now())
+
     response = HttpResponse(content_type='text/csv; charset=utf-8')
     response['Content-Disposition'] = (
         f'attachment; filename="apontamento_{date.today().isoformat()}.csv"'
     )
     response.write('\ufeff')
     writer = csv.writer(response, delimiter=';')
-    writer.writerow(['Data', 'Hora Inicio', 'Hora Fim', 'Total', 'Codigo Orcamento', 'Descricao'])
-    for registro in registros:
+    writer.writerow([
+        'Consultor',
+        'Orcamento',
+        'Servico',
+        'Data',
+        'Hora Inicio',
+        'Hora Fim',
+        'Descr Atividade',
+        'Nr Chamado',
+        'Cod. Fase',
+    ])
+    for registro in registros_exportados:
         writer.writerow(
             [
+                getattr(getattr(registro.user, 'profile', None), 'codigoerp', 0),
+                registro.orcamento.codigo,
+                registro.servico.codigo if registro.servico else '',
                 registro.data.strftime('%d/%m/%Y'),
                 registro.hora_inicio.strftime('%H:%M'),
                 registro.hora_fim.strftime('%H:%M'),
-                registro.total_formatado,
-                registro.orcamento.codigo,
                 registro.descricao,
+                registro.orcamento.numero_chamado,
+                registro.fase.codigo if registro.fase else '',
             ]
         )
     return response

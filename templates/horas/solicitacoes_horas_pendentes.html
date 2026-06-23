@@ -30,7 +30,7 @@
               <form method="post" action="{% url 'horas:solicitacao_horas_decidir' solicitacao.pk %}">
                 {% csrf_token %}
                 <div class="field" style="margin-bottom:8px;">
-                  <textarea name="motivo_reprovacao" rows="2" placeholder="Motivo obrigatório para reprovação"></textarea>
+                  <textarea name="observacao" rows="2" placeholder="Observação obrigatória para reprovação"></textarea>
                 </div>
                 <div class="actions-cell">
                   <button class="btn-inline btn-ok" type="submit" name="decisao" value="aprovar">Aprovar</button>
@@ -56,7 +56,7 @@
           <th>Orçamento</th>
           <th>Horas</th>
           <th>Situação</th>
-          <th>Motivo da Reprovação</th>
+          <th>Observação</th>
           <th>Processada em</th>
         </tr>
       </thead>

@@ -46,10 +46,18 @@
         {% for error in form.cliente.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
       </div>
       <div class="field">
+        <label for="{{ form.servico.id_for_label }}">Serviço</label>
+        {{ form.servico }}
+        {% for error in form.servico.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
         <label for="{{ form.produto.id_for_label }}">Produto</label>
         {{ form.produto }}
         {% for error in form.produto.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
       </div>
+    </div>
+
+    <div class="form-row single">
       <div class="field">
         <label for="{{ form.titulo.id_for_label }}">Título da Atividade</label>
         {{ form.titulo }}

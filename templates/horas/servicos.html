@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+
+{% block title %}Serviços | Apontamento de Horas{% endblock %}
+
+{% block content %}
+  <div class="page-title">Serviços</div>
+
+  <form method="post" class="add-orc-card" style="margin-bottom:24px;">
+    {% csrf_token %}
+    <h3>Adicionar serviço</h3>
+    <div class="form-row">
+      <div class="field">
+        <label for="{{ form.codigo.id_for_label }}">Código</label>
+        {{ form.codigo }}
+        {% for error in form.codigo.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
+        <label for="{{ form.descricao.id_for_label }}">Descrição</label>
+        {{ form.descricao }}
+        {% for error in form.descricao.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+    </div>
+    <button class="btn btn-primary btn-sm" type="submit">Adicionar</button>
+  </form>
+
+  <div class="orc-grid">
+    {% for servico in servicos %}
+      <div class="orc-card">
+        <div>
+          <div class="orc-code">{{ servico.codigo }}</div>
+          <div class="orc-name">
+            {% if servico.descricao %}{{ servico.descricao }}{% else %}<em style="opacity:.4">sem descrição</em>{% endif %}
+          </div>
+        </div>
+        <div class="orc-actions">
+          <form method="post" action="{% url 'horas:servico_remover' servico.pk %}">
+            {% csrf_token %}
+            <button class="btn-del" type="submit">✕</button>
+          </form>
+        </div>
+      </div>
+    {% empty %}
+      <div class="empty-inline">Nenhum serviço cadastrado.</div>
+    {% endfor %}
+  </div>
+{% endblock %}

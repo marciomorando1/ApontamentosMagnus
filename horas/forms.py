@@ -14,6 +14,7 @@ from .models import (
     Fase,
     Orcamento,
     Registro,
+    Servico,
     SolicitacaoHoras,
     format_decimal_hours,
 )
@@ -182,7 +183,7 @@ class DurationField(forms.CharField):
 class RegistroForm(forms.ModelForm):
     class Meta:
         model = Registro
-        fields = ['data', 'orcamento', 'fase', 'hora_inicio', 'hora_fim', 'descricao']
+        fields = ['data', 'orcamento', 'fase', 'servico', 'hora_inicio', 'hora_fim', 'descricao']
         widgets = {
             'data': DateInput(),
             'orcamento': AgendaOrcamentoSelect(),
@@ -204,6 +205,10 @@ class RegistroForm(forms.ModelForm):
 
         self.fields['fase'].queryset = Fase.objects.order_by('codigo')
         self.fields['fase'].empty_label = '— selecione —'
+        self.fields['fase'].required = False
+
+        self.fields['servico'].queryset = Servico.objects.order_by('codigo')
+        self.fields['servico'].empty_label = '— selecione —'
 
 
 class OrcamentoForm(forms.ModelForm):
@@ -301,6 +306,18 @@ class SolicitacaoHorasForm(forms.ModelForm):
 class FaseForm(forms.ModelForm):
     class Meta:
         model = Fase
+        fields = ['codigo', 'descricao']
+
+    def clean_codigo(self):
+        return self.cleaned_data['codigo'].strip()
+
+    def clean_descricao(self):
+        return self.cleaned_data['descricao'].strip()
+
+
+class ServicoForm(forms.ModelForm):
+    class Meta:
+        model = Servico
         fields = ['codigo', 'descricao']
 
     def clean_codigo(self):
@@ -428,6 +445,7 @@ class AgendaAtividadeForm(forms.ModelForm):
             'cliente',
             'numero_chamado',
             'orcamento',
+            'servico',
             'produto',
             'titulo',
             'descricao',
@@ -467,6 +485,9 @@ class AgendaAtividadeForm(forms.ModelForm):
             queryset = Orcamento.objects.filter(Q(ativo=True) | Q(pk=self.instance.orcamento_id))
         self.fields['orcamento'].queryset = queryset.order_by('codigo')
         self.fields['orcamento'].empty_label = '— selecione —'
+
+        self.fields['servico'].queryset = Servico.objects.order_by('codigo')
+        self.fields['servico'].empty_label = '— selecione —'
 
         is_gp = bool(
             current_user

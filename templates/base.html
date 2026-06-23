@@ -46,6 +46,9 @@
           <a class="nav-item {% if section == 'fases' %}active{% endif %}" href="{% url 'horas:fases' %}">
             <span class="nav-icon">+</span> Fases
           </a>
+          <a class="nav-item {% if section == 'servicos' %}active{% endif %}" href="{% url 'horas:servicos' %}">
+            <span class="nav-icon">S</span> Serviços
+          </a>
         {% endif %}
         <a class="nav-item {% if section == 'estimativas' %}active{% endif %}" href="{% url 'horas:estimativas' %}">
           <span class="nav-icon">E</span> Estimativas

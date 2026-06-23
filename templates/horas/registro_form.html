@@ -24,11 +24,16 @@
       </div>
     </div>
 
-    <div class="form-row single">
+    <div class="form-row">
       <div class="field">
         <label for="{{ form.fase.id_for_label }}">Fase</label>
         {{ form.fase }}
         {% for error in form.fase.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
+        <label for="{{ form.servico.id_for_label }}">Serviço</label>
+        {{ form.servico }}
+        {% for error in form.servico.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
       </div>
     </div>
 

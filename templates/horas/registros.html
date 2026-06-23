@@ -25,19 +25,37 @@
         {% endfor %}
       </select>
     </div>
+    {% if can_filter_usuario %}
+      <div class="field">
+        <label for="fil-usuario">Usuário</label>
+        <select id="fil-usuario" name="usuario">
+          <option value="">Todos</option>
+          {% for usuario in usuarios_filtro %}
+            <option value="{{ usuario.pk }}" {% if filtros.usuario == usuario.pk|stringformat:'s' %}selected{% endif %}>
+              {{ usuario.get_full_name|default:usuario.username }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+    {% endif %}
     <button class="btn btn-ghost btn-sm" type="submit">Filtrar</button>
-    <a class="btn btn-primary btn-sm" href="{% url 'horas:exportar_csv' %}?de={{ filtros.de }}&ate={{ filtros.ate }}&orcamento={{ filtros.orcamento }}">⬇ Exportar CSV</a>
+    {% if can_filter_usuario %}
+      <a class="btn btn-primary btn-sm" href="{% url 'horas:exportar_csv' %}?de={{ filtros.de }}&ate={{ filtros.ate }}&orcamento={{ filtros.orcamento }}&usuario={{ filtros.usuario }}">⬇ Exportar CSV</a>
+    {% endif %}
   </form>
 
   <div class="table-wrap">
     <table>
       <thead>
         <tr>
+          {% if can_filter_usuario %}<th>Usuário</th>{% endif %}
           <th>Data</th>
           <th>Início</th>
           <th>Fim</th>
           <th>Total</th>
           <th>Orçamento</th>
+          <th>Fase</th>
+          <th>Serviço</th>
           <th>Descrição</th>
           <th>Proc.</th>
           <th></th>
@@ -46,38 +64,52 @@
       <tbody>
         {% for registro in registros %}
           <tr class="{% if registro.processado == 'S' %}processed-row{% endif %}">
+            {% if can_filter_usuario %}
+              <td>{{ registro.user.get_full_name|default:registro.user.username }}</td>
+            {% endif %}
             <td class="mono">{{ registro.data|date:'d/m/Y' }}</td>
             <td class="mono">{{ registro.hora_inicio|time:'H:i' }}</td>
             <td class="mono">{{ registro.hora_fim|time:'H:i' }}</td>
             <td class="mono accent-text">{{ registro.total_formatado }}</td>
             <td><span class="badge-code">{{ registro.orcamento.codigo }}</span></td>
+            <td>{% if registro.fase %}<span class="badge-code">{{ registro.fase.codigo }}</span>{% else %}—{% endif %}</td>
+            <td>{% if registro.servico %}<span class="badge-code">{{ registro.servico.codigo }}</span>{% else %}—{% endif %}</td>
             <td class="desc">{{ registro.descricao|default:'—' }}</td>
             <td>
-              <form method="post" action="{% url 'horas:registro_processar' registro.pk %}?de={{ filtros.de }}&ate={{ filtros.ate }}&orcamento={{ filtros.orcamento }}">
-                {% csrf_token %}
-                <button
-                  class="btn-inline btn-ok {% if registro.processado == 'S' %}is-processed{% else %}is-pending{% endif %}"
-                  type="submit"
-                  title="{% if registro.processado == 'S' %}Desmarcar como processado{% else %}Marcar como processado{% endif %}"
-                >&#10003;</button>
-              </form>
+              {% if can_filter_usuario and registro.processado != 'S' %}
+                <form method="post" action="{% url 'horas:registro_processar' registro.pk %}?de={{ filtros.de }}&ate={{ filtros.ate }}&orcamento={{ filtros.orcamento }}{% if can_filter_usuario %}&usuario={{ filtros.usuario }}{% endif %}">
+                  {% csrf_token %}
+                  <button
+                    class="btn-inline btn-ok {% if registro.processado == 'S' %}is-processed{% else %}is-pending{% endif %}"
+                    type="submit"
+                    title="{% if registro.processado == 'S' %}Desmarcar como processado{% else %}Marcar como processado{% endif %}"
+                  >&#10003;</button>
+                </form>
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
             </td>
             <td class="actions-cell">
-              <form method="get" action="{% url 'horas:registro_editar' registro.pk %}">
-                {% if filtros.de %}<input type="hidden" name="de" value="{{ filtros.de }}">{% endif %}
-                {% if filtros.ate %}<input type="hidden" name="ate" value="{{ filtros.ate }}">{% endif %}
-                {% if filtros.orcamento %}<input type="hidden" name="orcamento" value="{{ filtros.orcamento }}">{% endif %}
-                <button class="btn-inline" type="submit">Editar</button>
-              </form>
-              <form method="post" action="{% url 'horas:registro_remover' registro.pk %}?de={{ filtros.de }}&ate={{ filtros.ate }}&orcamento={{ filtros.orcamento }}">
-                {% csrf_token %}
-                <button class="btn-del" type="submit">✕</button>
-              </form>
+              {% if registro.user_id == user.pk and registro.processado != 'S' %}
+                <form method="get" action="{% url 'horas:registro_editar' registro.pk %}">
+                  {% if filtros.de %}<input type="hidden" name="de" value="{{ filtros.de }}">{% endif %}
+                  {% if filtros.ate %}<input type="hidden" name="ate" value="{{ filtros.ate }}">{% endif %}
+                  {% if filtros.orcamento %}<input type="hidden" name="orcamento" value="{{ filtros.orcamento }}">{% endif %}
+                  {% if can_filter_usuario and filtros.usuario %}<input type="hidden" name="usuario" value="{{ filtros.usuario }}">{% endif %}
+                  <button class="btn-inline" type="submit">Editar</button>
+                </form>
+                <form method="post" action="{% url 'horas:registro_remover' registro.pk %}?de={{ filtros.de }}&ate={{ filtros.ate }}&orcamento={{ filtros.orcamento }}{% if can_filter_usuario %}&usuario={{ filtros.usuario }}{% endif %}">
+                  {% csrf_token %}
+                  <button class="btn-del" type="submit">✕</button>
+                </form>
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
             </td>
           </tr>
         {% empty %}
           <tr>
-            <td colspan="8">
+            <td colspan="{% if can_filter_usuario %}11{% else %}10{% endif %}">
               <div class="empty-state">
                 <div class="empty-icon">📭</div>
                 Nenhum registro encontrado.

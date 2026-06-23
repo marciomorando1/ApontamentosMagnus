@@ -8,6 +8,7 @@
   <div class="agenda-event-meta">
     {% if atividade.numero_chamado %}<span>Chamado {{ atividade.numero_chamado }}</span>{% endif %}
     <span>{{ atividade.orcamento.codigo }}</span>
+    {% if atividade.servico %}<span>{{ atividade.servico.codigo }}</span>{% endif %}
     {% if atividade.hora_inicio and atividade.hora_fim %}
       <span>{{ atividade.hora_inicio|time:'H:i' }} - {{ atividade.hora_fim|time:'H:i' }}</span>
     {% endif %}
@@ -26,7 +27,7 @@
     {% endif %}
     <a
       class="btn btn-primary agenda-point-button"
-      href="{% url 'horas:timer' %}?data={{ day.date|date:'Y-m-d' }}&orcamento={{ atividade.orcamento_id }}"
+      href="{% url 'horas:timer' %}?data={{ day.date|date:'Y-m-d' }}&orcamento={{ atividade.orcamento_id }}{% if atividade.servico_id %}&servico={{ atividade.servico_id }}{% endif %}"
     >Apontar</a>
   </div>
 </div>

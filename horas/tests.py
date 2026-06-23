@@ -16,6 +16,7 @@ from .models import (
     Fase,
     Orcamento,
     Registro,
+    Servico,
     SolicitacaoHoras,
     UserProfile,
 )
@@ -90,6 +91,7 @@ class AuthenticatedTestCase(TestCase):
         self.other_user = User.objects.create_user(username='other', password='senha-segura')
         self.client.force_login(self.user)
         self.fase = Fase.objects.create(codigo='101', descricao='Comercial - Venda')
+        self.servico = Servico.objects.create(codigo='S01', descricao='Implantação')
 
     def criar_registro(self, *, orcamento, fase=None, user=None, **kwargs):
         if orcamento.horas == 0:
@@ -99,6 +101,7 @@ class AuthenticatedTestCase(TestCase):
             'user': user or self.user,
             'orcamento': orcamento,
             'fase': fase or self.fase,
+            'servico': self.servico,
             'data': date.today(),
             'hora_inicio': '08:00',
             'hora_fim': '09:00',
@@ -113,12 +116,14 @@ class RegistroModelTests(TestCase):
         self.user = User.objects.create_user(username='model-user', password='senha-segura')
         self.orcamento = Orcamento.objects.create(codigo='17275', nome='Projeto teste', horas='1000')
         self.fase = Fase.objects.create(codigo='101', descricao='Comercial - Venda')
+        self.servico = Servico.objects.create(codigo='S01', descricao='Implantação')
 
     def test_rejeita_data_futura(self):
         registro = Registro(
             user=self.user,
             orcamento=self.orcamento,
             fase=self.fase,
+            servico=self.servico,
             data=date.today() + timedelta(days=1),
             hora_inicio='08:00',
             hora_fim='09:00',
@@ -131,6 +136,7 @@ class RegistroModelTests(TestCase):
             user=self.user,
             orcamento=self.orcamento,
             fase=self.fase,
+            servico=self.servico,
             data=date.today(),
             hora_inicio='10:00',
             hora_fim='10:00',
@@ -138,22 +144,24 @@ class RegistroModelTests(TestCase):
         with self.assertRaises(ValidationError):
             registro.full_clean()
 
-    def test_rejeita_registro_sem_fase(self):
+    def test_permite_registro_sem_fase(self):
         registro = Registro(
             user=self.user,
             orcamento=self.orcamento,
+            servico=self.servico,
             data=date.today(),
             hora_inicio='08:00',
             hora_fim='09:00',
         )
-        with self.assertRaises(ValidationError):
-            registro.full_clean()
+        registro.full_clean()
+        self.assertIsNone(registro.fase)
 
     def test_novo_registro_inicia_como_nao_processado(self):
         registro = Registro.objects.create(
             user=self.user,
             orcamento=self.orcamento,
             fase=self.fase,
+            servico=self.servico,
             data=date.today(),
             hora_inicio='08:00',
             hora_fim='09:00',
@@ -177,6 +185,7 @@ class TimerViewTests(AuthenticatedTestCase):
                 'data': date.today().isoformat(),
                 'orcamento': self.orcamento.pk,
                 'fase': self.fase.pk,
+                'servico': self.servico.pk,
                 'hora_inicio': '08:00',
                 'hora_fim': '09:30',
                 'descricao': 'Implementação inicial',
@@ -206,6 +215,16 @@ class TimerViewTests(AuthenticatedTestCase):
         )
         self.assertContains(response, 'data-horas-apontadas="00:00"', html=False)
         self.assertContains(response, 'data-horas-disponiveis="20:30"', html=False)
+
+    def test_abre_apontamento_com_servico_preenchido(self):
+        response = self.client.get(
+            reverse('horas:timer'),
+            {'servico': self.servico.pk},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['form'].initial['servico'], str(self.servico.pk))
+        self.assertContains(response, f'<option value="{self.servico.pk}" selected', html=False)
 
     def test_exibe_horas_do_orcamento_em_campo_somente_leitura(self):
         response = self.client.get(reverse('horas:timer'))
@@ -239,6 +258,7 @@ class TimerViewTests(AuthenticatedTestCase):
                 'data': date.today().isoformat(),
                 'orcamento': self.orcamento.pk,
                 'fase': self.fase.pk,
+                'servico': self.servico.pk,
                 'hora_inicio': '08:00',
                 'hora_fim': '09:00',
                 'descricao': 'Primeira atividade',
@@ -252,20 +272,38 @@ class TimerViewTests(AuthenticatedTestCase):
         self.assertEqual(Registro.objects.count(), 3)
         self.assertEqual(Registro.objects.filter(user=self.user).count(), 3)
 
-    def test_nao_cria_registro_sem_fase(self):
+    def test_cria_registro_sem_fase(self):
         response = self.client.post(
             reverse('horas:timer'),
             data={
                 'data': date.today().isoformat(),
                 'orcamento': self.orcamento.pk,
+                'servico': self.servico.pk,
                 'hora_inicio': '08:00',
                 'hora_fim': '09:30',
                 'descricao': 'Sem fase',
             },
         )
+        self.assertRedirects(response, reverse('horas:timer'), fetch_redirect_response=False)
+        self.assertEqual(Registro.objects.count(), 1)
+        self.assertIsNone(Registro.objects.get().fase)
+
+    def test_nao_cria_registro_sem_servico(self):
+        response = self.client.post(
+            reverse('horas:timer'),
+            data={
+                'data': date.today().isoformat(),
+                'orcamento': self.orcamento.pk,
+                'fase': self.fase.pk,
+                'hora_inicio': '08:00',
+                'hora_fim': '09:30',
+                'descricao': 'Sem serviço',
+            },
+        )
+
         self.assertEqual(response.status_code, 200)
         self.assertEqual(Registro.objects.count(), 0)
-        self.assertContains(response, 'Selecione')
+        self.assertContains(response, 'Selecione um serviço.')
 
     def test_apontamento_contabiliza_horas_no_orcamento_independente_do_usuario(self):
         self.client.post(
@@ -274,6 +312,7 @@ class TimerViewTests(AuthenticatedTestCase):
                 'data': date.today().isoformat(),
                 'orcamento': self.orcamento.pk,
                 'fase': self.fase.pk,
+                'servico': self.servico.pk,
                 'hora_inicio': '08:00',
                 'hora_fim': '09:30',
                 'descricao': 'Primeiro usuário',
@@ -286,6 +325,7 @@ class TimerViewTests(AuthenticatedTestCase):
                 'data': date.today().isoformat(),
                 'orcamento': self.orcamento.pk,
                 'fase': self.fase.pk,
+                'servico': self.servico.pk,
                 'hora_inicio': '10:00',
                 'hora_fim': '11:00',
                 'descricao': 'Segundo usuário',
@@ -307,6 +347,7 @@ class TimerViewTests(AuthenticatedTestCase):
                 'data': date.today().isoformat(),
                 'orcamento': self.orcamento.pk,
                 'fase': self.fase.pk,
+                'servico': self.servico.pk,
                 'hora_inicio': '08:00',
                 'hora_fim': '11:00',
                 'descricao': 'Excede saldo',
@@ -331,6 +372,7 @@ class TimerViewTests(AuthenticatedTestCase):
                 'data': date.today().isoformat(),
                 'orcamento': self.orcamento.pk,
                 'fase': self.fase.pk,
+                'servico': self.servico.pk,
                 'hora_inicio': '08:00',
                 'hora_fim': '09:30',
                 'descricao': 'Dentro do saldo',
@@ -353,6 +395,7 @@ class TimerViewTests(AuthenticatedTestCase):
                 'data': date.today().isoformat(),
                 'orcamento': self.orcamento.pk,
                 'fase': self.fase.pk,
+                'servico': self.servico.pk,
                 'hora_inicio': '08:00',
                 'hora_fim': '10:00',
                 'descricao': 'Será removido',
@@ -409,6 +452,44 @@ class RegistrosViewTests(AuthenticatedTestCase):
         self.assertEqual(registros[0].descricao, 'Mais antigo')
         self.assertEqual(registros[1].descricao, 'Mais recente')
 
+    def test_lista_registros_exibe_servico(self):
+        self.criar_registro(
+            orcamento=self.orcamento,
+            data=date.today(),
+            descricao='Com serviço',
+        )
+
+        response = self.client.get(reverse('horas:registros'))
+
+        self.assertContains(response, '<th>Serviço</th>', html=False)
+        self.assertContains(response, self.servico.codigo)
+
+    def test_lista_registros_exibe_fase_quando_preenchida(self):
+        self.criar_registro(
+            orcamento=self.orcamento,
+            data=date.today(),
+            descricao='Com fase',
+        )
+
+        response = self.client.get(reverse('horas:registros'))
+
+        self.assertContains(response, '<th>Fase</th>', html=False)
+        self.assertContains(response, self.fase.codigo)
+
+    def test_lista_registros_sem_fase_sem_bloquear_listagem(self):
+        registro = self.criar_registro(
+            orcamento=self.orcamento,
+            data=date.today(),
+            descricao='Sem fase',
+        )
+        registro.fase = None
+        registro.save(update_fields=['fase'])
+
+        response = self.client.get(reverse('horas:registros'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Sem fase')
+
     def test_registros_carrega_filtros_com_data_atual_por_padrao(self):
         self.criar_registro(
             orcamento=self.orcamento,
@@ -449,6 +530,7 @@ class RegistrosViewTests(AuthenticatedTestCase):
                 'data': '2026-04-08',
                 'orcamento': self.orcamento.pk,
                 'fase': self.fase.pk,
+                'servico': self.servico.pk,
                 'hora_inicio': '10:30',
                 'hora_fim': '11:45',
                 'descricao': 'Descrição alterada',
@@ -477,6 +559,7 @@ class RegistrosViewTests(AuthenticatedTestCase):
                 'data': date.today().isoformat(),
                 'orcamento': self.orcamento.pk,
                 'fase': self.fase.pk,
+                'servico': self.servico.pk,
                 'hora_inicio': '08:00',
                 'hora_fim': '10:30',
                 'descricao': 'Duracao atualizada',
@@ -516,6 +599,7 @@ class RegistrosViewTests(AuthenticatedTestCase):
                 'data': '2026-04-08',
                 'orcamento': self.orcamento.pk,
                 'fase': self.fase.pk,
+                'servico': self.servico.pk,
                 'hora_inicio': '10:15',
                 'hora_fim': '11:15',
                 'descricao': 'Primeira edicao',
@@ -529,6 +613,7 @@ class RegistrosViewTests(AuthenticatedTestCase):
                 'data': '2026-04-08',
                 'orcamento': self.orcamento.pk,
                 'fase': self.fase.pk,
+                'servico': self.servico.pk,
                 'hora_inicio': '10:30',
                 'hora_fim': '11:30',
                 'descricao': 'Segunda edicao',
@@ -558,6 +643,7 @@ class RegistrosViewTests(AuthenticatedTestCase):
                 'data': '2026-04-08',
                 'orcamento': self.orcamento.pk,
                 'fase': self.fase.pk,
+                'servico': self.servico.pk,
                 'hora_inicio': '10:00',
                 'hora_fim': '11:30',
                 'descricao': 'Teste filtros',
@@ -571,12 +657,12 @@ class RegistrosViewTests(AuthenticatedTestCase):
         )
 
     def test_lista_apenas_registros_do_usuario_logado(self):
-        self.criar_registro(
+        registro = self.criar_registro(
             orcamento=self.orcamento,
             data=date.today(),
             descricao='Meu registro',
         )
-        self.criar_registro(
+        registro_exportado = self.criar_registro(
             user=self.other_user,
             orcamento=self.orcamento,
             data=date.today(),
@@ -588,6 +674,147 @@ class RegistrosViewTests(AuthenticatedTestCase):
         registros = list(response.context['registros'])
         self.assertEqual(len(registros), 1)
         self.assertEqual(registros[0].descricao, 'Meu registro')
+
+    def test_usuario_sem_exportacsv_nao_ve_filtro_usuario_nem_lista_outros(self):
+        registro = self.criar_registro(
+            orcamento=self.orcamento,
+            data=date.today(),
+            descricao='Meu registro',
+        )
+        registro_exportado = self.criar_registro(
+            user=self.other_user,
+            orcamento=self.orcamento,
+            data=date.today(),
+            descricao='Registro de outro usuario',
+        )
+
+        response = self.client.get(
+            reverse('horas:registros'),
+            {'usuario': self.other_user.pk},
+        )
+
+        registros = list(response.context['registros'])
+        self.assertFalse(response.context['can_filter_usuario'])
+        self.assertNotContains(response, 'name="usuario"', html=False)
+        self.assertNotContains(response, 'Exportar CSV')
+        self.assertNotContains(response, reverse('horas:registro_processar', args=[registro.pk]))
+        self.assertEqual(len(registros), 1)
+        self.assertEqual(registros[0].descricao, 'Meu registro')
+
+    def test_usuario_com_exportacsv_filtra_registros_por_usuario(self):
+        self.user.profile.exportacsv = True
+        self.user.profile.save(update_fields=['exportacsv'])
+        self.criar_registro(
+            orcamento=self.orcamento,
+            data=date.today(),
+            descricao='Meu registro',
+        )
+        outro_registro = self.criar_registro(
+            user=self.other_user,
+            orcamento=self.orcamento,
+            data=date.today(),
+            descricao='Registro de outro usuario',
+        )
+
+        response = self.client.get(
+            reverse('horas:registros'),
+            {'usuario': self.other_user.pk},
+        )
+
+        registros = list(response.context['registros'])
+        self.assertTrue(response.context['can_filter_usuario'])
+        self.assertContains(response, 'name="usuario"', html=False)
+        self.assertContains(response, 'Exportar CSV')
+        self.assertContains(response, reverse('horas:registro_processar', args=[outro_registro.pk]))
+        self.assertContains(response, self.other_user.username)
+        self.assertEqual(len(registros), 1)
+        self.assertEqual(registros[0].descricao, 'Registro de outro usuario')
+
+    def test_csv_respeita_filtro_usuario_quando_exportacsv_habilitado(self):
+        self.user.profile.exportacsv = True
+        self.user.profile.save(update_fields=['exportacsv'])
+        self.other_user.profile.codigoerp = 9876
+        self.other_user.profile.save(update_fields=['codigoerp'])
+        self.orcamento.numero_chamado = 'CH-123'
+        self.orcamento.save(update_fields=['numero_chamado'])
+        self.criar_registro(
+            orcamento=self.orcamento,
+            data=date.today(),
+            descricao='Meu registro',
+        )
+        registro_exportado = self.criar_registro(
+            user=self.other_user,
+            orcamento=self.orcamento,
+            data=date.today(),
+            descricao='Registro de outro usuario',
+        )
+
+        response = self.client.get(
+            reverse('horas:exportar_csv'),
+            {'usuario': self.other_user.pk},
+        )
+        content = response.content.decode('utf-8-sig')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            'Consultor;Orcamento;Servico;Data;Hora Inicio;Hora Fim;Descr Atividade;Nr Chamado;Cod. Fase',
+            content,
+        )
+        self.assertIn(
+            f'9876;{self.orcamento.codigo};{self.servico.codigo};{date.today().strftime("%d/%m/%Y")};08:00;09:00;Registro de outro usuario;CH-123;{self.fase.codigo}',
+            content,
+        )
+        self.assertIn('Registro de outro usuario', content)
+        self.assertNotIn('Meu registro', content)
+        registro_exportado.refresh_from_db()
+        self.assertEqual(registro_exportado.processado, Registro.PROCESSADO_SIM)
+
+    def test_csv_exporta_apenas_registros_nao_processados(self):
+        self.user.profile.exportacsv = True
+        self.user.profile.save(update_fields=['exportacsv'])
+        self.criar_registro(
+            orcamento=self.orcamento,
+            data=date.today(),
+            descricao='Pendente para exportar',
+        )
+        self.criar_registro(
+            orcamento=self.orcamento,
+            data=date.today(),
+            descricao='Ja exportado',
+            processado=Registro.PROCESSADO_SIM,
+        )
+
+        response = self.client.get(reverse('horas:exportar_csv'))
+        content = response.content.decode('utf-8-sig')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('Pendente para exportar', content)
+        self.assertNotIn('Ja exportado', content)
+
+    def test_csv_sem_registros_pendentes_nao_gera_arquivo(self):
+        self.user.profile.exportacsv = True
+        self.user.profile.save(update_fields=['exportacsv'])
+        self.criar_registro(
+            orcamento=self.orcamento,
+            data=date.today(),
+            descricao='Ja exportado',
+            processado=Registro.PROCESSADO_SIM,
+        )
+
+        response = self.client.get(reverse('horas:exportar_csv'))
+
+        self.assertRedirects(response, reverse('horas:registros'), fetch_redirect_response=False)
+
+    def test_usuario_sem_exportacsv_nao_acessa_exportacao_csv(self):
+        self.criar_registro(
+            orcamento=self.orcamento,
+            data=date.today(),
+            descricao='Pendente',
+        )
+
+        response = self.client.get(reverse('horas:exportar_csv'))
+
+        self.assertEqual(response.status_code, 403)
 
     def test_nao_permite_editar_registro_de_outro_usuario(self):
         registro = self.criar_registro(
@@ -614,7 +841,41 @@ class RegistrosViewTests(AuthenticatedTestCase):
         self.assertEqual(response.status_code, 404)
         self.assertTrue(Registro.objects.filter(pk=registro.pk).exists())
 
+    def test_registro_processado_aparece_somente_para_visualizacao(self):
+        self.user.profile.exportacsv = True
+        self.user.profile.save(update_fields=['exportacsv'])
+        registro = self.criar_registro(
+            orcamento=self.orcamento,
+            data=date.today(),
+            descricao='Somente leitura',
+            processado=Registro.PROCESSADO_SIM,
+        )
+
+        response = self.client.get(reverse('horas:registros'))
+
+        self.assertContains(response, 'Somente leitura')
+        self.assertNotContains(response, reverse('horas:registro_processar', args=[registro.pk]))
+        self.assertNotContains(response, reverse('horas:registro_editar', args=[registro.pk]))
+        self.assertNotContains(response, reverse('horas:registro_remover', args=[registro.pk]))
+
+    def test_nao_permite_editar_ou_remover_registro_processado(self):
+        registro = self.criar_registro(
+            orcamento=self.orcamento,
+            data=date.today(),
+            descricao='Processado',
+            processado=Registro.PROCESSADO_SIM,
+        )
+
+        response_editar = self.client.get(reverse('horas:registro_editar', args=[registro.pk]))
+        response_remover = self.client.post(reverse('horas:registro_remover', args=[registro.pk]))
+
+        self.assertEqual(response_editar.status_code, 403)
+        self.assertEqual(response_remover.status_code, 403)
+        self.assertTrue(Registro.objects.filter(pk=registro.pk).exists())
+
     def test_marca_registro_como_processado(self):
+        self.user.profile.exportacsv = True
+        self.user.profile.save(update_fields=['exportacsv'])
         registro = self.criar_registro(
             orcamento=self.orcamento,
             data=date.today(),
@@ -630,7 +891,9 @@ class RegistrosViewTests(AuthenticatedTestCase):
         registro.refresh_from_db()
         self.assertEqual(registro.processado, Registro.PROCESSADO_SIM)
 
-    def test_desmarca_registro_processado(self):
+    def test_nao_desmarca_registro_processado(self):
+        self.user.profile.exportacsv = True
+        self.user.profile.save(update_fields=['exportacsv'])
         registro = self.criar_registro(
             orcamento=self.orcamento,
             data=date.today(),
@@ -640,14 +903,28 @@ class RegistrosViewTests(AuthenticatedTestCase):
 
         response = self.client.post(
             reverse('horas:registro_processar', args=[registro.pk]),
-            follow=True,
         )
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 403)
+        registro.refresh_from_db()
+        self.assertEqual(registro.processado, Registro.PROCESSADO_SIM)
+
+    def test_nao_permite_processar_registro_sem_exportacsv(self):
+        registro = self.criar_registro(
+            orcamento=self.orcamento,
+            data=date.today(),
+            descricao='Privado',
+        )
+
+        response = self.client.post(reverse('horas:registro_processar', args=[registro.pk]))
+
+        self.assertEqual(response.status_code, 403)
         registro.refresh_from_db()
         self.assertEqual(registro.processado, Registro.PROCESSADO_NAO)
 
-    def test_nao_permite_processar_registro_de_outro_usuario(self):
+    def test_usuario_com_exportacsv_processa_registro_de_outro_usuario(self):
+        self.user.profile.exportacsv = True
+        self.user.profile.save(update_fields=['exportacsv'])
         registro = self.criar_registro(
             user=self.other_user,
             orcamento=self.orcamento,
@@ -657,9 +934,9 @@ class RegistrosViewTests(AuthenticatedTestCase):
 
         response = self.client.post(reverse('horas:registro_processar', args=[registro.pk]))
 
-        self.assertEqual(response.status_code, 404)
+        self.assertRedirects(response, reverse('horas:registros'), fetch_redirect_response=False)
         registro.refresh_from_db()
-        self.assertEqual(registro.processado, Registro.PROCESSADO_NAO)
+        self.assertEqual(registro.processado, Registro.PROCESSADO_SIM)
 
 
 class ResumoViewTests(AuthenticatedTestCase):
@@ -809,6 +1086,43 @@ class AuthenticationFlowTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'must_change_password')
         self.assertContains(response, 'is_pmo')
+        self.assertContains(response, 'exportacsv')
+        self.assertContains(response, 'codigoerp')
+
+    def test_admin_exige_codigoerp_ao_criar_usuario(self):
+        admin = User.objects.create_superuser(
+            username='admin-codigoerp',
+            password='SenhaForte123!',
+            email='admin-codigoerp@example.com',
+        )
+        self.client.force_login(admin)
+        url = reverse('admin:auth_user_add')
+
+        response_sem_codigo = self.client.post(
+            url,
+            data={
+                'username': 'usuario-sem-codigo',
+                'password1': 'SenhaForte123!abc',
+                'password2': 'SenhaForte123!abc',
+            },
+        )
+
+        self.assertEqual(response_sem_codigo.status_code, 200)
+        self.assertFalse(User.objects.filter(username='usuario-sem-codigo').exists())
+
+        response_com_codigo = self.client.post(
+            url,
+            data={
+                'username': 'usuario-com-codigo',
+                'password1': 'SenhaForte123!abc',
+                'password2': 'SenhaForte123!abc',
+                'codigoerp': '12345',
+            },
+        )
+
+        self.assertEqual(response_com_codigo.status_code, 302)
+        user = User.objects.get(username='usuario-com-codigo')
+        self.assertEqual(user.profile.codigoerp, 12345)
 
 
 class OrcamentosViewTests(AuthenticatedTestCase):
@@ -1465,13 +1779,13 @@ class SolicitacoesHorasViewTests(AuthenticatedTestCase):
         self.assertEqual(response.context['pendencias_aprovacao_count'], 1)
         self.assertContains(response, '>1</span>', html=False)
 
-    def test_gp_responsavel_aprova_e_adiciona_horas_ao_orcamento(self):
+    def test_gp_responsavel_aprova_sem_adicionar_horas_ao_orcamento(self):
         solicitacao = self.criar_solicitacao(quantidade='4.50')
         self.client.force_login(self.gp)
 
         response = self.client.post(
             reverse('horas:solicitacao_horas_decidir', args=[solicitacao.pk]),
-            data={'decisao': 'aprovar'},
+            data={'decisao': 'aprovar', 'observacao': 'Aprovado pelo GP'},
         )
 
         self.assertRedirects(
@@ -1483,8 +1797,12 @@ class SolicitacoesHorasViewTests(AuthenticatedTestCase):
         self.orcamento.refresh_from_db()
         self.assertEqual(solicitacao.situacao, SolicitacaoHoras.SITUACAO_APROVADO)
         self.assertEqual(solicitacao.decidido_por, self.gp)
-        self.assertEqual(self.orcamento.horas_adicionais, Decimal('4.50'))
-        self.assertEqual(self.orcamento.horas_disponiveis, Decimal('4.50'))
+        self.assertEqual(solicitacao.motivo_reprovacao, 'Aprovado pelo GP')
+        self.assertEqual(self.orcamento.horas_adicionais, Decimal('0'))
+        self.assertEqual(self.orcamento.horas_disponiveis, Decimal('0'))
+
+        response_processadas = self.client.get(reverse('horas:solicitacoes_horas_pendentes'))
+        self.assertContains(response_processadas, 'Aprovado pelo GP')
 
     def test_gp_nao_pode_aprovar_solicitacao_de_outro_responsavel(self):
         solicitacao = self.criar_solicitacao()
@@ -1504,7 +1822,7 @@ class SolicitacoesHorasViewTests(AuthenticatedTestCase):
         self.client.force_login(self.gp)
         response_sem_motivo = self.client.post(
             reverse('horas:solicitacao_horas_decidir', args=[solicitacao.pk]),
-            data={'decisao': 'reprovar', 'motivo_reprovacao': ''},
+            data={'decisao': 'reprovar', 'observacao': ''},
         )
         solicitacao.refresh_from_db()
         self.assertRedirects(
@@ -1517,7 +1835,7 @@ class SolicitacoesHorasViewTests(AuthenticatedTestCase):
         motivo = 'Escopo não aprovado pelo cliente'
         self.client.post(
             reverse('horas:solicitacao_horas_decidir', args=[solicitacao.pk]),
-            data={'decisao': 'reprovar', 'motivo_reprovacao': motivo},
+            data={'decisao': 'reprovar', 'observacao': motivo},
         )
         solicitacao.refresh_from_db()
         self.assertEqual(solicitacao.situacao, SolicitacaoHoras.SITUACAO_REPROVADO)
@@ -1528,6 +1846,11 @@ class SolicitacoesHorasViewTests(AuthenticatedTestCase):
         self.assertContains(response_usuario, 'Reprovado')
         self.assertContains(response_usuario, motivo)
 
+        self.client.force_login(self.gp)
+        response_processadas = self.client.get(reverse('horas:solicitacoes_horas_pendentes'))
+        self.assertContains(response_processadas, 'Observação')
+        self.assertContains(response_processadas, motivo)
+
     def test_solicitacao_aprovada_nao_pode_ser_processada_novamente(self):
         solicitacao = self.criar_solicitacao(quantidade='3.00')
         self.client.force_login(self.gp)
@@ -1537,9 +1860,9 @@ class SolicitacoesHorasViewTests(AuthenticatedTestCase):
         self.client.post(url, data={'decisao': 'aprovar'})
 
         self.orcamento.refresh_from_db()
-        self.assertEqual(self.orcamento.horas_adicionais, Decimal('3.00'))
+        self.assertEqual(self.orcamento.horas_adicionais, Decimal('0'))
 
-    def test_horas_aprovadas_ficam_disponiveis_para_apontamento(self):
+    def test_horas_aprovadas_nao_ficam_disponiveis_para_apontamento(self):
         solicitacao = self.criar_solicitacao(quantidade='2.00')
         self.client.force_login(self.gp)
         self.client.post(
@@ -1554,15 +1877,17 @@ class SolicitacoesHorasViewTests(AuthenticatedTestCase):
                 'data': date.today().isoformat(),
                 'orcamento': self.orcamento.pk,
                 'fase': self.fase.pk,
+                'servico': self.servico.pk,
                 'hora_inicio': '08:00',
                 'hora_fim': '10:00',
                 'descricao': 'Uso das horas adicionais',
             },
         )
 
-        self.assertRedirects(response, reverse('horas:timer'), fetch_redirect_response=False)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'excede as horas disponíveis')
         self.orcamento.refresh_from_db()
-        self.assertEqual(self.orcamento.horas_apontadas, Decimal('12.00'))
+        self.assertEqual(self.orcamento.horas_apontadas, Decimal('10.00'))
         self.assertEqual(self.orcamento.horas_disponiveis, Decimal('0'))
 
 
@@ -1899,13 +2224,90 @@ class FasesViewTests(AuthenticatedTestCase):
         self.assertTrue(Fase.objects.filter(pk=fase.pk).exists())
 
 
+class ServicosViewTests(AuthenticatedTestCase):
+    def setUp(self):
+        super().setUp()
+        self.user.profile.is_gerente_projetos = True
+        self.user.profile.save(update_fields=['is_gerente_projetos'])
+
+    def test_lista_servicos_cadastrados(self):
+        servico = Servico.objects.create(codigo='S02', descricao='Suporte')
+
+        response = self.client.get(reverse('horas:servicos'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, servico.codigo)
+        self.assertContains(response, servico.descricao)
+
+    def test_cadastra_servico_valido(self):
+        response = self.client.post(
+            reverse('horas:servicos'),
+            data={
+                'codigo': 'S03',
+                'descricao': 'Parametrização',
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(
+            Servico.objects.filter(codigo='S03', descricao='Parametrização').exists()
+        )
+
+    def test_remove_servico(self):
+        servico = Servico.objects.create(codigo='S04', descricao='Treinamento')
+
+        response = self.client.post(
+            reverse('horas:servico_remover', args=[servico.pk]),
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Servico.objects.filter(pk=servico.pk).exists())
+
+    def test_usuario_comum_nao_ve_menu_servicos(self):
+        self.user.profile.is_gerente_projetos = False
+        self.user.profile.save(update_fields=['is_gerente_projetos'])
+
+        response = self.client.get(reverse('horas:timer'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, reverse('horas:servicos'))
+
+    def test_usuario_comum_nao_acessa_servicos(self):
+        self.user.profile.is_gerente_projetos = False
+        self.user.profile.save(update_fields=['is_gerente_projetos'])
+
+        response_get = self.client.get(reverse('horas:servicos'))
+        response_post = self.client.post(
+            reverse('horas:servicos'),
+            data={'codigo': 'S05', 'descricao': 'Bloqueado'},
+        )
+
+        self.assertEqual(response_get.status_code, 403)
+        self.assertEqual(response_post.status_code, 403)
+        self.assertFalse(Servico.objects.filter(codigo='S05').exists())
+
+    def test_usuario_comum_nao_remove_servico(self):
+        self.user.profile.is_gerente_projetos = False
+        self.user.profile.save(update_fields=['is_gerente_projetos'])
+        servico = Servico.objects.create(codigo='S06', descricao='Protegido')
+
+        response = self.client.post(reverse('horas:servico_remover', args=[servico.pk]))
+
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(Servico.objects.filter(pk=servico.pk).exists())
+
+
 class UserProfileTests(TestCase):
     def test_cria_profile_para_novo_usuario(self):
         user = User.objects.create_user(username='novo-perfil', password='senha-segura')
 
         self.assertTrue(UserProfile.objects.filter(user=user).exists())
+        self.assertEqual(user.profile.codigoerp, 0)
         self.assertFalse(user.profile.is_gerente_projetos)
         self.assertFalse(user.profile.is_pmo)
+        self.assertFalse(user.profile.exportacsv)
         self.assertFalse(user.profile.must_change_password)
 
 
@@ -1916,6 +2318,7 @@ class AgendaAtividadeModelTests(TestCase):
         self.gp.profile.is_gerente_projetos = True
         self.gp.profile.save(update_fields=['is_gerente_projetos'])
         self.orcamento = Orcamento.objects.create(codigo='9001', nome='Agenda Orcamento')
+        self.servico = Servico.objects.create(codigo='AG01', descricao='Agenda')
 
     def test_rejeita_data_final_menor_que_inicial(self):
         atividade = AgendaAtividade(
@@ -1924,6 +2327,7 @@ class AgendaAtividadeModelTests(TestCase):
             cliente='Cliente',
             numero_chamado='123',
             orcamento=self.orcamento,
+            servico=self.servico,
             produto='Produto',
             titulo='Atividade',
             descricao='Descricao',
@@ -1940,6 +2344,7 @@ class AgendaAtividadeModelTests(TestCase):
             criado_por=self.gp,
             cliente='Cliente',
             orcamento=self.orcamento,
+            servico=self.servico,
             titulo='Atividade',
             data_inicio=date(2026, 6, 10),
             hora_inicio='10:00',
@@ -1957,6 +2362,7 @@ class AgendaAtividadeModelTests(TestCase):
             criado_por=self.gp,
             cliente='Cliente',
             orcamento=self.orcamento,
+            servico=self.servico,
             titulo='Atividade',
             data_inicio=date(2026, 6, 10),
             hora_inicio='18:00',
@@ -1973,6 +2379,7 @@ class AgendaAtividadeModelTests(TestCase):
             criado_por=self.gp,
             cliente='Cliente',
             orcamento=self.orcamento,
+            servico=self.servico,
             titulo='Atividade',
             data_inicio=date(2026, 6, 10),
             hora_inicio='08:00',
@@ -1990,6 +2397,7 @@ class AgendaAtividadeModelTests(TestCase):
             criado_por=self.gp,
             cliente='Cliente',
             orcamento=self.orcamento,
+            servico=self.servico,
             titulo='Atividade legada',
             data_inicio=date(2026, 6, 10),
             data_fim=date(2026, 6, 10),
@@ -2011,6 +2419,7 @@ class AgendaViewTests(TestCase):
             numero_chamado='67890',
             nome='Agenda Orcamento',
         )
+        self.servico = Servico.objects.create(codigo='AG02', descricao='Agenda')
 
     def criar_atividade(self, *, user, criado_por, titulo='Atividade', data_inicio=None, data_fim=None):
         return AgendaAtividade.objects.create(
@@ -2019,6 +2428,7 @@ class AgendaViewTests(TestCase):
             cliente='Cliente Agenda',
             numero_chamado='CH-1',
             orcamento=self.orcamento,
+            servico=self.servico,
             produto='ERP',
             titulo=titulo,
             descricao='Descricao da atividade',
@@ -2145,6 +2555,7 @@ class AgendaViewTests(TestCase):
                 'cliente': 'Cliente Agenda',
                 'numero_chamado': 'CH-100',
                 'orcamento': self.orcamento.pk,
+                'servico': self.servico.pk,
                 'produto': 'ERP',
                 'titulo': 'Atividade delegada',
                 'descricao': 'Descricao',
@@ -2175,6 +2586,7 @@ class AgendaViewTests(TestCase):
                 'cliente': 'Cliente Agenda',
                 'numero_chamado': 'CH-200',
                 'orcamento': self.orcamento.pk,
+                'servico': self.servico.pk,
                 'produto': 'ERP',
                 'titulo': 'Minha atividade',
                 'descricao': 'Descricao',
@@ -2201,6 +2613,7 @@ class AgendaViewTests(TestCase):
             data={
                 'cliente': 'Cliente Agenda',
                 'orcamento': self.orcamento.pk,
+                'servico': self.servico.pk,
                 'produto': 'ERP',
                 'titulo': 'Duracao compacta',
                 'data_inicio': '2026-06-10',
@@ -2246,6 +2659,7 @@ class AgendaViewTests(TestCase):
                 'cliente': '99999',
                 'numero_chamado': '99999',
                 'orcamento': self.orcamento.pk,
+                'servico': self.servico.pk,
                 'produto': 'ERP',
                 'titulo': 'Dados protegidos',
                 'data_inicio': '2026-06-10',
@@ -2287,6 +2701,7 @@ class AgendaViewTests(TestCase):
             data={
                 'cliente': 'Cliente Agenda',
                 'orcamento': self.orcamento.pk,
+                'servico': self.servico.pk,
                 'produto': 'Outro',
                 'titulo': 'Produto invalido',
                 'data_inicio': '2026-06-10',
@@ -2329,6 +2744,7 @@ class AgendaViewTests(TestCase):
                 'cliente': atividade.cliente,
                 'numero_chamado': atividade.numero_chamado,
                 'orcamento': atividade.orcamento.pk,
+                'servico': atividade.servico.pk,
                 'produto': atividade.produto,
                 'titulo': 'Delegada ajustada',
                 'descricao': atividade.descricao,
@@ -2354,6 +2770,7 @@ class AgendaViewTests(TestCase):
             data={
                 'cliente': 'Cliente Agenda',
                 'orcamento': self.orcamento.pk,
+                'servico': self.servico.pk,
                 'titulo': 'Sem planejamento',
                 'data_inicio': '2026-06-10',
                 'data_fim': '2026-06-10',
@@ -2436,7 +2853,7 @@ class AgendaViewTests(TestCase):
         for data_card in ('2026-06-10', '2026-06-11', '2026-06-12'):
             self.assertContains(
                 response,
-                f'{reverse("horas:timer")}?data={data_card}&orcamento={atividade.orcamento_id}',
+                f'{reverse("horas:timer")}?data={data_card}&orcamento={atividade.orcamento_id}&servico={atividade.servico_id}',
             )
         self.assertContains(response, '>Apontar</a>', count=3, html=False)
 

@@ -34,9 +34,17 @@
         {% for error in form.fase.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
       </div>
       <div class="field">
+        <label for="{{ form.servico.id_for_label }}">Serviço</label>
+        {{ form.servico }}
+        {% for error in form.servico.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
         <label for="orcamento-horas-apontadas">Quantidade de Horas Apontadas</label>
         <input type="text" id="orcamento-horas-apontadas" placeholder="—" readonly class="mono-accent">
       </div>
+    </div>
+
+    <div class="form-row">
       <div class="field">
         <label for="orcamento-horas-disponiveis">Quantidade de Horas Disponíveis</label>
         <input type="text" id="orcamento-horas-disponiveis" placeholder="—" readonly class="mono-accent">

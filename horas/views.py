@@ -1542,7 +1542,7 @@ def exportar_registros_csv(request):
     registros, _, _, _, _ = _filter_registros(request, allow_usuario_filter=True)
     with transaction.atomic():
         registros_exportados = list(
-            registros.select_for_update().filter(processado=Registro.PROCESSADO_NAO)
+            registros.select_for_update(of=('self',)).filter(processado=Registro.PROCESSADO_NAO)
         )
         if not registros_exportados:
             messages.warning(request, 'Nenhum registro pendente para exportar.')

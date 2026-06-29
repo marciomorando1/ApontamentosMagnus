@@ -17,12 +17,12 @@ services:
     image: magnus-rotinas-app:prod
     container_name: magnus-rotinas-app-prod
     ports:
-      - "${APP_PORT:-8094}:8000"
+      - "${APP_PORT:-8099}:8000"
     environment:
       DEBUG: "False"
       SECRET_KEY: "${SECRET_KEY:-change-this-django-secret-key}"
       ALLOWED_HOSTS: "${ALLOWED_HOSTS:-localhost,127.0.0.1}"
-      CSRF_TRUSTED_ORIGINS: "${CSRF_TRUSTED_ORIGINS:-http://localhost:8094,http://127.0.0.1:8094}"
+      CSRF_TRUSTED_ORIGINS: "${CSRF_TRUSTED_ORIGINS:-http://localhost:8099,http://127.0.0.1:8099}"
       DATABASE_URL: "postgres://${POSTGRES_USER:-magnus_rotinas}:${DB_PASSWORD:-magnus_rotinas}@postgres:5432/${POSTGRES_DB:-magnus_rotinas}"
     depends_on:
       - postgres

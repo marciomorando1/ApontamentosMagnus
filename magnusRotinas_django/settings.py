@@ -18,7 +18,7 @@ SECRET_KEY = os.getenv(
 )
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DEBUG', 'False') == 'True'  # False em produção
+DEBUG = os.getenv('DEBUG', 'False') == 'True'
 
 ALLOWED_HOSTS = [
     host.strip()
@@ -26,15 +26,22 @@ ALLOWED_HOSTS = [
     if host.strip()
 ]
 
-# No final do arquivo, ou na seção de configurações
+# Production host/proxy settings.
 
 CSRF_TRUSTED_ORIGINS = [
-    'https://apontamentosmagnus-production.up.railway.app',
-    'https://*.up.railway.app',  # Para todos subdomínios do Railway
-    'http://localhost:8000',  # Para desenvolvimento local
-    'http://127.0.0.1:8000',
+    origin.strip()
+    for origin in os.getenv(
+        'CSRF_TRUSTED_ORIGINS',
+        'https://apontamentosmagnus-production.up.railway.app,'
+        'https://*.up.railway.app,'
+        'http://localhost:8000,'
+        'http://127.0.0.1:8000',
+    ).split(',')
+    if origin.strip()
 ]
 
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+FORCE_SCRIPT_NAME = os.getenv('FORCE_SCRIPT_NAME') or None
 
 
 # Application definition
@@ -137,9 +144,9 @@ USE_TZ = False
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-# PARA ISSO:
-STATIC_URL = '/static/'
-STATIC_ROOT = BASE_DIR / 'staticfiles'  # ✅ Adicione esta linha
+# Static files
+STATIC_URL = os.getenv('STATIC_URL', '/static/')
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 

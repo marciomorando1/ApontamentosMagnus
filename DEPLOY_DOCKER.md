@@ -18,8 +18,10 @@ Configure como Variables:
 APP_PORT=8099
 POSTGRES_DB=magnus_rotinas
 POSTGRES_USER=magnus_rotinas
-ALLOWED_HOSTS=170.84.202.95,10.51.69.2
-CSRF_TRUSTED_ORIGINS=http://170.84.202.95,http://10.51.69.2:8099
+ALLOWED_HOSTS=170.84.202.95,10.51.69.2,localhost,127.0.0.1
+CSRF_TRUSTED_ORIGINS=http://170.84.202.95,http://10.51.69.2:8099,http://localhost:8099,http://127.0.0.1:8099
+FORCE_SCRIPT_NAME=/apontamentos
+STATIC_URL=/apontamentos/static/
 ```
 
 Configure como Secrets:
@@ -72,3 +74,4 @@ sudo systemctl reload nginx
 - O banco fica persistido no volume `magnus-rotinas-db-prod-data`.
 - O app escuta internamente na porta `8000`.
 - A porta externa padrao e `8099`, ajustavel por `APP_PORT`.
+- `FORCE_SCRIPT_NAME` e `STATIC_URL` mantem links e assets funcionando no subpath `/apontamentos/`.

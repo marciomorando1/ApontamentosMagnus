@@ -27,8 +27,8 @@ STATIC_URL=/apontamentos/static/
 Configure como Secrets:
 
 ```text
-DB_PASSWORD=senha-forte-do-postgres
-SECRET_KEY=chave-secreta-forte-do-django
+DB_PASSWORD=<definir-no-github-ou-no-env-do-servidor>
+SECRET_KEY=<definir-no-github-ou-no-env-do-servidor>
 ```
 
 ## Deploy manual

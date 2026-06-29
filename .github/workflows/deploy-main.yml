@@ -1,0 +1,89 @@
+name: Deploy Production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SSH_HOST: ${{ vars.SSH_HOST }}
+      SSH_USER: ${{ vars.SSH_USER }}
+      SSH_PORT: ${{ vars.SSH_PORT }}
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+      APP_PORT: ${{ vars.APP_PORT }}
+      POSTGRES_DB: ${{ vars.POSTGRES_DB }}
+      POSTGRES_USER: ${{ vars.POSTGRES_USER }}
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+      SECRET_KEY: ${{ secrets.SECRET_KEY }}
+      ALLOWED_HOSTS: ${{ vars.ALLOWED_HOSTS }}
+      CSRF_TRUSTED_ORIGINS: ${{ vars.CSRF_TRUSTED_ORIGINS }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare SSH
+        run: |
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "${{ secrets.SSH_PRIVATE_KEY }}"
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${SSH_PORT:-22}" "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Create production environment file
+        run: |
+          cat > .env.production <<EOF
+          APP_PORT=${APP_PORT:-8094}
+          POSTGRES_DB=${POSTGRES_DB:-magnus_rotinas}
+          POSTGRES_USER=${POSTGRES_USER:-magnus_rotinas}
+          DB_PASSWORD=${DB_PASSWORD}
+          SECRET_KEY=${SECRET_KEY}
+          ALLOWED_HOSTS=${ALLOWED_HOSTS}
+          CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS}
+          EOF
+          sed -i 's/^          //' .env.production
+
+      - name: Create deployment archive
+        run: |
+          tar \
+            --exclude='.git' \
+            --exclude='.venv' \
+            --exclude='venv' \
+            --exclude='env' \
+            --exclude='__pycache__' \
+            --exclude='*.sqlite3' \
+            --exclude='*.sqlite3-journal' \
+            --exclude='staticfiles' \
+            --exclude='output' \
+            -czf /tmp/magnus-rotinas-deploy.tar.gz .
+
+      - name: Upload project to server
+        run: |
+          SSH_PORT="${SSH_PORT:-22}"
+          DEPLOY_PATH="${DEPLOY_PATH:-/opt/magnus-rotinas}"
+          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "mkdir -p '$DEPLOY_PATH'"
+          scp -i ~/.ssh/deploy_key -P "$SSH_PORT" /tmp/magnus-rotinas-deploy.tar.gz "$SSH_USER@$SSH_HOST:/tmp/magnus-rotinas-deploy.tar.gz"
+          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "tar -xzf /tmp/magnus-rotinas-deploy.tar.gz -C '$DEPLOY_PATH'"
+
+      - name: Deploy stack
+        run: |
+          SSH_PORT="${SSH_PORT:-22}"
+          DEPLOY_PATH="${DEPLOY_PATH:-/opt/magnus-rotinas}"
+          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "cd '$DEPLOY_PATH' && docker compose --env-file .env.production -p magnus-rotinas-prod -f docker-compose.production.yml build --pull && docker compose --env-file .env.production -p magnus-rotinas-prod -f docker-compose.production.yml down --remove-orphans && docker compose --env-file .env.production -p magnus-rotinas-prod -f docker-compose.production.yml up -d --remove-orphans"
+
+      - name: Verify containers
+        run: |
+          SSH_PORT="${SSH_PORT:-22}"
+          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "docker ps --filter 'name=magnus-rotinas-app-prod' --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' && docker logs magnus-rotinas-app-prod --tail 50"
+
+      - name: Cleanup images
+        run: |
+          SSH_PORT="${SSH_PORT:-22}"
+          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "docker image prune -f"

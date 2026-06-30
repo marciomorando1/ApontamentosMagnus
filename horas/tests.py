@@ -7,7 +7,7 @@ from xml.etree import ElementTree as ET
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from .models import (
@@ -1071,6 +1071,18 @@ class AuthenticationFlowTests(TestCase):
         self.assertTrue(user.check_password('NovaSenhaForte123!'))
         self.assertFalse(self.client.login(username='troca-valida', password='SenhaForte123!'))
         self.assertTrue(self.client.login(username='troca-valida', password='NovaSenhaForte123!'))
+
+    @override_settings(FORCE_SCRIPT_NAME='/apontamentos', STATIC_URL='/apontamentos/static/')
+    def test_troca_de_senha_aceita_prefixo_apontamentos(self):
+        user = User.objects.create_user(username='prefixo-senha', password='SenhaForte123!')
+        user.profile.must_change_password = True
+        user.profile.save(update_fields=['must_change_password'])
+        self.client.force_login(user)
+
+        response = self.client.get('/apontamentos/senha/trocar/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Troque sua senha')
 
     def test_admin_exibe_flag_de_troca_obrigatoria(self):
         admin = User.objects.create_superuser(

@@ -5,6 +5,22 @@ from django.urls import reverse
 from .models import UserProfile
 
 
+class ScriptNamePrefixMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        script_name = settings.FORCE_SCRIPT_NAME
+        if script_name:
+            prefix = script_name.rstrip('/')
+            if request.path_info == prefix:
+                request.path_info = '/'
+            elif request.path_info.startswith(f'{prefix}/'):
+                request.path_info = request.path_info[len(prefix):]
+
+        return self.get_response(request)
+
+
 class RequiredPasswordChangeMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
@@ -20,11 +36,16 @@ class RequiredPasswordChangeMiddleware:
             return False
 
         path = request.path_info
+        static_url = settings.STATIC_URL
+        script_name = settings.FORCE_SCRIPT_NAME or ''
+        if script_name and static_url.startswith(f'{script_name}/'):
+            static_url = static_url[len(script_name):]
+
         allowed_prefixes = (
             reverse('password_change_required'),
             reverse('logout'),
             reverse('login'),
-            settings.STATIC_URL,
+            static_url,
             '/admin/',
         )
         if any(path.startswith(prefix) for prefix in allowed_prefixes):

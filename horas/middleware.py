@@ -41,7 +41,7 @@ class RequiredPasswordChangeMiddleware:
         if script_name and static_url.startswith(f'{script_name}/'):
             static_url = static_url[len(script_name):]
 
-        allowed_prefixes = (
+        allowed_prefixes = self._prefix_variants(
             reverse('password_change_required'),
             reverse('logout'),
             reverse('login'),
@@ -51,5 +51,20 @@ class RequiredPasswordChangeMiddleware:
         if any(path.startswith(prefix) for prefix in allowed_prefixes):
             return False
 
+        full_path = request.path
+        if any(full_path.startswith(prefix) for prefix in allowed_prefixes):
+            return False
+
         profile, _ = UserProfile.objects.get_or_create(user=user)
         return profile.must_change_password
+
+    def _prefix_variants(self, *prefixes):
+        script_name = settings.FORCE_SCRIPT_NAME or ''
+        variants = set()
+        for prefix in prefixes:
+            variants.add(prefix)
+            if script_name and prefix.startswith(f'{script_name}/'):
+                variants.add(prefix[len(script_name):])
+            elif script_name and prefix.startswith('/'):
+                variants.add(f'{script_name}{prefix}')
+        return tuple(variants)

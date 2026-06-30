@@ -8,7 +8,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
-from django.urls import reverse
+from django.urls import reverse, set_script_prefix
 
 from .models import (
     AgendaAtividade,
@@ -1074,6 +1074,8 @@ class AuthenticationFlowTests(TestCase):
 
     @override_settings(FORCE_SCRIPT_NAME='/apontamentos', STATIC_URL='/apontamentos/static/')
     def test_troca_de_senha_aceita_prefixo_apontamentos(self):
+        set_script_prefix('/apontamentos/')
+        self.addCleanup(set_script_prefix, '/')
         user = User.objects.create_user(username='prefixo-senha', password='SenhaForte123!')
         user.profile.must_change_password = True
         user.profile.save(update_fields=['must_change_password'])

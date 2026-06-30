@@ -18,6 +18,8 @@ jobs:
       SECRET_KEY: ${{ secrets.SECRET_KEY }}
       ALLOWED_HOSTS: ${{ vars.ALLOWED_HOSTS }}
       CSRF_TRUSTED_ORIGINS: ${{ vars.CSRF_TRUSTED_ORIGINS }}
+      FORCE_SCRIPT_NAME: ${{ vars.FORCE_SCRIPT_NAME }}
+      STATIC_URL: ${{ vars.STATIC_URL }}
 
     steps:
       - name: Checkout
@@ -38,6 +40,8 @@ jobs:
           SECRET_KEY=${SECRET_KEY}
           ALLOWED_HOSTS=${ALLOWED_HOSTS}
           CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS}
+          FORCE_SCRIPT_NAME=${FORCE_SCRIPT_NAME:-/apontamentos}
+          STATIC_URL=${STATIC_URL:-/apontamentos/static/}
           EOF
           sed -i 's/^          //' .env.production
 

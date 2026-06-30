@@ -32,6 +32,8 @@ CSRF_TRUSTED_ORIGINS = [
     origin.strip()
     for origin in os.getenv(
         'CSRF_TRUSTED_ORIGINS',
+        'https://apontamentosmagnus-production.up.railway.app,'
+        'https://*.up.railway.app,'
         'http://localhost:8000,'
         'http://127.0.0.1:8000',
     ).split(',')

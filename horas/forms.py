@@ -86,6 +86,8 @@ AGENDA_PRODUTO_CHOICES = [
     ('', '— selecione —'),
     ('ERP', 'ERP'),
     ('HCM', 'HCM'),
+    ('PMO', 'PMO'),
+    ('GAS', 'GAS'),
 ]
 
 

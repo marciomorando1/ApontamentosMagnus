@@ -618,7 +618,35 @@ ORCAMENTO_IMPORT_HEADERS = [
 ]
 
 
-def _xlsx_cell_text(cell, shared_strings):
+XLSX_BUILTIN_DURATION_FORMAT_IDS = {'20', '21', '45', '46', '47'}
+
+
+def _xlsx_duration_style_ids(workbook):
+    if 'xl/styles.xml' not in workbook.namelist():
+        return set()
+
+    try:
+        styles_root = ET.fromstring(workbook.read('xl/styles.xml'))
+    except ET.ParseError:
+        return set()
+
+    custom_formats = {}
+    for num_fmt in styles_root.findall(f'{{{XLSX_NS}}}numFmts/{{{XLSX_NS}}}numFmt'):
+        num_fmt_id = num_fmt.attrib.get('numFmtId')
+        format_code = (num_fmt.attrib.get('formatCode') or '').lower()
+        if num_fmt_id:
+            custom_formats[num_fmt_id] = format_code
+
+    duration_style_ids = set()
+    for index, xf in enumerate(styles_root.findall(f'{{{XLSX_NS}}}cellXfs/{{{XLSX_NS}}}xf')):
+        num_fmt_id = xf.attrib.get('numFmtId')
+        format_code = custom_formats.get(num_fmt_id, '')
+        if num_fmt_id in XLSX_BUILTIN_DURATION_FORMAT_IDS or '[h]' in format_code:
+            duration_style_ids.add(str(index))
+    return duration_style_ids
+
+
+def _xlsx_cell_text(cell, shared_strings, duration_style_ids=None):
     cell_type = cell.attrib.get('t')
     value = cell.find(f'{{{XLSX_NS}}}v')
     if cell_type == 'inlineStr':
@@ -628,6 +656,14 @@ def _xlsx_cell_text(cell, shared_strings):
     if cell_type == 's':
         return shared_strings[int(value.text)]
     text = value.text
+    if duration_style_ids and cell.attrib.get('s') in duration_style_ids:
+        try:
+            total_minutes = int(round(Decimal(text) * Decimal('24') * Decimal('60')))
+        except InvalidOperation:
+            pass
+        else:
+            hours, minutes = divmod(total_minutes, 60)
+            return f'{hours}:{minutes:02d}'
     if re.fullmatch(r'\d+\.0+', text):
         return text.split('.', 1)[0]
     return text
@@ -644,6 +680,7 @@ def _read_orcamentos_xlsx(arquivo):
                     for item in shared_root.findall(f'{{{XLSX_NS}}}si')
                 ]
 
+            duration_style_ids = _xlsx_duration_style_ids(workbook)
             workbook_root = ET.fromstring(workbook.read('xl/workbook.xml'))
             rels_root = ET.fromstring(workbook.read('xl/_rels/workbook.xml.rels'))
             relmap = {rel.attrib['Id']: rel.attrib['Target'] for rel in rels_root}
@@ -659,7 +696,7 @@ def _read_orcamentos_xlsx(arquivo):
         values = {}
         for cell in row.findall(f'{{{XLSX_NS}}}c'):
             _, column = _cell_position(cell.attrib.get('r', ''))
-            values[column] = _xlsx_cell_text(cell, shared_strings).strip()
+            values[column] = _xlsx_cell_text(cell, shared_strings, duration_style_ids).strip()
         if values:
             last_column = max(values)
             rows.append([values.get(column, '') for column in range(1, last_column + 1)])

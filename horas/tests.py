@@ -45,19 +45,30 @@ def build_test_xlsx(rows):
             while number:
                 number, remainder = divmod(number - 1, 26)
                 column = chr(65 + remainder) + column
+            cell_attrs = {'r': f'{column}{row_number}', 't': 'inlineStr'}
+            cell_value = value
+            if isinstance(value, dict):
+                cell_value = value.get('value', '')
+                cell_attrs.update(value.get('attrs', {}))
             cell = ET.SubElement(
                 row,
                 '{http://schemas.openxmlformats.org/spreadsheetml/2006/main}c',
-                {'r': f'{column}{row_number}', 't': 'inlineStr'},
+                cell_attrs,
             )
-            inline = ET.SubElement(
-                cell,
-                '{http://schemas.openxmlformats.org/spreadsheetml/2006/main}is',
-            )
-            ET.SubElement(
-                inline,
-                '{http://schemas.openxmlformats.org/spreadsheetml/2006/main}t',
-            ).text = str(value)
+            if cell_attrs.get('t') == 'inlineStr':
+                inline = ET.SubElement(
+                    cell,
+                    '{http://schemas.openxmlformats.org/spreadsheetml/2006/main}is',
+                )
+                ET.SubElement(
+                    inline,
+                    '{http://schemas.openxmlformats.org/spreadsheetml/2006/main}t',
+                ).text = str(cell_value)
+            else:
+                ET.SubElement(
+                    cell,
+                    '{http://schemas.openxmlformats.org/spreadsheetml/2006/main}v',
+                ).text = str(cell_value)
 
     output = BytesIO()
     with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as workbook:
@@ -80,6 +91,14 @@ def build_test_xlsx(rows):
               <Relationship Id="rId1" Target="worksheets/sheet1.xml"
                 Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet"/>
             </Relationships>''',
+        )
+        workbook.writestr(
+            'xl/styles.xml',
+            '''<?xml version="1.0" encoding="UTF-8"?>
+            <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+              <numFmts count="1"><numFmt numFmtId="164" formatCode="[h]:mm"/></numFmts>
+              <cellXfs count="2"><xf numFmtId="0" xfId="0"/><xf numFmtId="164" xfId="0" applyNumberFormat="1"/></cellXfs>
+            </styleSheet>''',
         )
     output.seek(0)
     return output
@@ -1366,6 +1385,20 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         self.assertRedirects(response, reverse('horas:orcamentos'), fetch_redirect_response=False)
         self.assertEqual(Orcamento.objects.get(codigo='1001').horas, Decimal('18.00'))
         self.assertEqual(Orcamento.objects.get(codigo='1002').horas, Decimal('12.00'))
+
+    def test_importa_horas_acima_de_24_formatadas_como_duracao_excel(self):
+        response = self.importar_planilha(
+            [
+                self.headers_importacao,
+                ['1001', '2001', '3001', 'Projeto A', {'value': '3.25', 'attrs': {'s': '1', 't': 'n'}}, self.pmo_user.username],
+                ['1002', '2002', '3002', 'Projeto B', {'value': '2.5', 'attrs': {'s': '1', 't': 'n'}}, self.pmo_user.username],
+            ]
+        )
+
+        self.assertRedirects(response, reverse('horas:orcamentos'), fetch_redirect_response=False)
+        self.assertEqual(Orcamento.objects.get(codigo='1001').horas, Decimal('78.00'))
+        self.assertEqual(Orcamento.objects.get(codigo='1002').horas, Decimal('60.00'))
+
 
     def test_importacao_rejeita_cabecalhos_fora_de_ordem(self):
         response = self.importar_planilha(

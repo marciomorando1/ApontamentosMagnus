@@ -1215,6 +1215,45 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         self.assertContains(response, self.user.username)
         self.assertContains(response, self.pmo_user.username)
 
+    def test_cadastra_orcamento_com_minutos_fracionarios(self):
+        response = self.client.post(
+            reverse('horas:orcamentos'),
+            data={
+                'codigo': '103',
+                'codigo_cliente': '203',
+                'numero_chamado': '303',
+                'nome': 'Projeto com minutos quebrados',
+                'horas': '22:50',
+                'pmo': self.pmo_user.pk,
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        orcamento = Orcamento.objects.get(codigo='103')
+        self.assertEqual(orcamento.horas, Decimal('22.83'))
+        self.assertEqual(orcamento.horas_formatadas, '22:50')
+        self.assertContains(response, '22:50')
+
+    def test_cadastra_orcamento_com_horas_acima_de_quatro_digitos(self):
+        response = self.client.post(
+            reverse('horas:orcamentos'),
+            data={
+                'codigo': '104',
+                'codigo_cliente': '204',
+                'numero_chamado': '304',
+                'nome': 'Projeto com muitas horas',
+                'horas': '12345:15',
+                'pmo': self.pmo_user.pk,
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        orcamento = Orcamento.objects.get(codigo='104')
+        self.assertEqual(orcamento.horas, Decimal('12345.25'))
+        self.assertEqual(orcamento.horas_formatadas, '12345:15')
+
     def test_campo_pmo_lista_apenas_usuarios_marcados_como_pmo(self):
         response = self.client.get(reverse('horas:orcamentos'))
 
@@ -1337,7 +1376,8 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         self.assertContains(response, 'name="numero_chamado" inputmode="numeric"', html=False)
         self.assertContains(response, 'name="horas"', html=False)
         self.assertContains(response, 'data-compact-duration="true"', html=False)
-        self.assertContains(response, 'maxlength="7"', html=False)
+        self.assertNotContains(response, 'maxlength="7"', html=False)
+        self.assertContains(response, 'pattern="^\\d+:[0-5]\\d$"', html=False)
         self.assertContains(response, 'numeric-only', count=4)
         self.assertContains(response, "field.value.replace(/\\D/g, '')", html=False)
         self.assertContains(response, 'event.preventDefault()', html=False)

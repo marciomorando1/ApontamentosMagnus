@@ -119,12 +119,13 @@ class DurationField(forms.CharField):
     default_error_messages = {
         'invalid': 'Informe as horas no formato HH:MM.',
     }
+    decimal_places = Decimal('0.01')
 
     def __init__(self, *args, **kwargs):
         self.compact_digits = kwargs.pop('compact_digits', False)
         widget_attrs = {
             'placeholder': '00:00',
-            'pattern': r'^\d{1,4}:[0-5]\d$',
+            'pattern': r'^\d+:[0-5]\d$',
             'inputmode': 'numeric',
             'class': 'duration-input',
         }
@@ -132,7 +133,6 @@ class DurationField(forms.CharField):
             widget_attrs.update(
                 {
                     'data-compact-duration': 'true',
-                    'maxlength': '7',
                 }
             )
         kwargs.setdefault(
@@ -165,9 +165,11 @@ class DurationField(forms.CharField):
                 minutes = int(minutes_text)
                 if minutes > 59:
                     raise forms.ValidationError(self.error_messages['invalid'], code='invalid')
-                return Decimal(hours_text) + (Decimal(minutes) / Decimal('60'))
+                return self._quantize_hours(
+                    Decimal(hours_text) + (Decimal(minutes) / Decimal('60'))
+                )
             try:
-                return Decimal(value.replace(',', '.'))
+                return self._quantize_hours(Decimal(value.replace(',', '.')))
             except InvalidOperation as exc:
                 raise forms.ValidationError(self.error_messages['invalid'], code='invalid') from exc
 
@@ -179,7 +181,10 @@ class DurationField(forms.CharField):
         if minutes > 59:
             raise forms.ValidationError(self.error_messages['invalid'], code='invalid')
 
-        return Decimal(hours_text) + (Decimal(minutes) / Decimal('60'))
+        return self._quantize_hours(Decimal(hours_text) + (Decimal(minutes) / Decimal('60')))
+
+    def _quantize_hours(self, value):
+        return value.quantize(self.decimal_places)
 
 
 class RegistroForm(forms.ModelForm):

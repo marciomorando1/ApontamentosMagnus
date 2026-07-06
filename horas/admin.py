@@ -70,6 +70,7 @@ class OrcamentoAdmin(admin.ModelAdmin):
     list_display = (
         'codigo',
         'codigo_cliente',
+        'nome_cliente',
         'numero_chamado',
         'nome',
         'horas_formatadas',
@@ -81,7 +82,7 @@ class OrcamentoAdmin(admin.ModelAdmin):
         'ativo',
         'criado_em',
     )
-    search_fields = ('codigo', 'codigo_cliente', 'numero_chamado', 'nome', 'responsavel__username', 'pmo__username')
+    search_fields = ('codigo', 'codigo_cliente', 'nome_cliente', 'numero_chamado', 'nome', 'responsavel__username', 'pmo__username')
     list_filter = ('ativo', 'responsavel', 'pmo')
     readonly_fields = ('horas_adicionais', 'horas_apontadas')
 

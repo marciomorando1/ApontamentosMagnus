@@ -13,7 +13,7 @@
 
   <form method="post" class="timer-card">
     {% csrf_token %}
-    <div class="form-row triple">
+    <div class="form-row quad">
       <div class="field">
         <label for="{{ form.codigo.id_for_label }}">Código</label>
         {{ form.codigo }}
@@ -23,6 +23,11 @@
         <label for="{{ form.codigo_cliente.id_for_label }}">Código do Cliente</label>
         {{ form.codigo_cliente }}
         {% for error in form.codigo_cliente.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
+        <label for="{{ form.nome_cliente.id_for_label }}">Nome do Cliente</label>
+        {{ form.nome_cliente }}
+        {% for error in form.nome_cliente.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
       </div>
       <div class="field">
         <label for="{{ form.numero_chamado.id_for_label }}">Número do Chamado</label>

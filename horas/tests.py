@@ -1194,6 +1194,7 @@ class OrcamentosViewTests(AuthenticatedTestCase):
             data={
                 'codigo': '100',
                 'codigo_cliente': '200',
+                'nome_cliente': 'Cliente Teste',
                 'numero_chamado': '300',
                 'nome': 'Projeto com chamado',
                 'horas': '12:30',
@@ -1205,11 +1206,13 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         self.assertEqual(response.status_code, 200)
         orcamento = Orcamento.objects.get(codigo='100')
         self.assertEqual(orcamento.codigo_cliente, '200')
+        self.assertEqual(orcamento.nome_cliente, 'Cliente Teste')
         self.assertEqual(orcamento.numero_chamado, '300')
         self.assertEqual(orcamento.horas, Decimal('12.50'))
         self.assertEqual(orcamento.responsavel, self.user)
         self.assertEqual(orcamento.pmo, self.pmo_user)
         self.assertContains(response, '<td class="mono">200</td>', html=True)
+        self.assertContains(response, '<td>Cliente Teste</td>', html=True)
         self.assertContains(response, '<td class="mono">300</td>', html=True)
         self.assertContains(response, '12:30')
         self.assertContains(response, self.user.username)
@@ -1323,6 +1326,7 @@ class OrcamentosViewTests(AuthenticatedTestCase):
             codigo='1001',
             codigo_cliente='2001',
             numero_chamado='3001',
+            nome_cliente='Cliente Linha',
             nome='Projeto em linha',
             responsavel=self.user,
         )
@@ -1331,6 +1335,7 @@ class OrcamentosViewTests(AuthenticatedTestCase):
 
         self.assertContains(response, '<table class="orcamentos-table">', html=False)
         self.assertNotContains(response, 'class="orc-grid"', html=False)
+        self.assertContains(response, 'Cliente Linha')
         self.assertContains(response, 'Projeto em linha')
         self.assertContains(response, reverse('horas:orcamento_editar', args=[orcamento.pk]))
         self.assertContains(response, reverse('horas:orcamento_remover', args=[orcamento.pk]))
@@ -1374,6 +1379,7 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         self.assertContains(response, 'name="codigo" inputmode="numeric"', html=False)
         self.assertContains(response, 'name="codigo_cliente" inputmode="numeric"', html=False)
         self.assertContains(response, 'name="numero_chamado" inputmode="numeric"', html=False)
+        self.assertContains(response, 'name="nome_cliente"', html=False)
         self.assertContains(response, 'name="horas"', html=False)
         self.assertContains(response, 'data-compact-duration="true"', html=False)
         self.assertNotContains(response, 'maxlength="7"', html=False)
@@ -1388,6 +1394,7 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         orcamento = Orcamento.objects.create(codigo='ORC-LEGADO', nome='Legado')
 
         self.assertEqual(orcamento.codigo_cliente, '')
+        self.assertEqual(orcamento.nome_cliente, '')
         self.assertEqual(orcamento.numero_chamado, '')
 
     def test_importa_orcamentos_de_planilha_xlsx(self):
@@ -1529,6 +1536,7 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         orcamento = Orcamento.objects.create(
             codigo='1001',
             codigo_cliente='2001',
+            nome_cliente='Cliente Original',
             numero_chamado='3001',
             nome='Projeto original',
             horas='8.50',
@@ -1540,6 +1548,7 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'value="1001"', html=False)
         self.assertContains(response, 'value="2001"', html=False)
+        self.assertContains(response, 'value="Cliente Original"', html=False)
         self.assertContains(response, 'value="3001"', html=False)
         self.assertContains(response, 'value="Projeto original"', html=False)
 
@@ -1556,6 +1565,7 @@ class OrcamentosViewTests(AuthenticatedTestCase):
             data={
                 'codigo': '1002',
                 'codigo_cliente': '2002',
+                'nome_cliente': 'Cliente Atualizado',
                 'numero_chamado': '3002',
                 'nome': 'Projeto atualizado',
                 'horas': '12:45',
@@ -1567,6 +1577,7 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         orcamento.refresh_from_db()
         self.assertEqual(orcamento.codigo, '1002')
         self.assertEqual(orcamento.codigo_cliente, '2002')
+        self.assertEqual(orcamento.nome_cliente, 'Cliente Atualizado')
         self.assertEqual(orcamento.numero_chamado, '3002')
         self.assertEqual(orcamento.nome, 'Projeto atualizado')
         self.assertEqual(orcamento.horas, Decimal('12.75'))
@@ -2503,6 +2514,7 @@ class AgendaViewTests(TestCase):
         self.orcamento = Orcamento.objects.create(
             codigo='9002',
             codigo_cliente='12345',
+            nome_cliente='Cliente Magnus',
             numero_chamado='67890',
             nome='Agenda Orcamento',
         )
@@ -2725,6 +2737,8 @@ class AgendaViewTests(TestCase):
         self.assertLess(content.index('name="orcamento"'), content.index('name="cliente"'))
         self.assertContains(response, 'class="agenda-schedule-row"', html=False)
         self.assertContains(response, 'maskDurationInput', html=False)
+        self.assertContains(response, 'suggestMaximumHoursFromSchedule', html=False)
+        self.assertContains(response, 'formatMinutesAsDuration(endMinutes - startMinutes)', html=False)
 
     def test_nova_atividade_bloqueia_e_preenche_cliente_e_chamado_pelo_orcamento(self):
         self.client.force_login(self.user)
@@ -2879,7 +2893,7 @@ class AgendaViewTests(TestCase):
         self.assertContains(response, '08:00 - 17:00')
         self.assertContains(response, 'Máx. 16:00')
 
-    def test_card_agenda_exibe_horas_apontadas_e_disponiveis_atualizadas(self):
+    def test_card_agenda_exibe_horas_apontadas_e_nome_cliente(self):
         self.orcamento.horas = Decimal('20')
         self.orcamento.horas_apontadas = Decimal('7.5')
         self.orcamento.save(update_fields=['horas', 'horas_apontadas'])
@@ -2888,15 +2902,16 @@ class AgendaViewTests(TestCase):
 
         response = self.client.get(reverse('horas:agenda'), {'mes': '2026-06'})
 
+        self.assertContains(response, '12345 - Cliente Magnus')
         self.assertContains(response, 'HRS APT: 07:30')
-        self.assertContains(response, 'HRS DIS: 12:30')
+        self.assertNotContains(response, 'HRS DIS:')
 
         self.orcamento.horas_apontadas = Decimal('10')
         self.orcamento.save(update_fields=['horas_apontadas'])
         response = self.client.get(reverse('horas:agenda'), {'mes': '2026-06'})
 
         self.assertContains(response, 'HRS APT: 10:00')
-        self.assertContains(response, 'HRS DIS: 10:00')
+        self.assertNotContains(response, 'HRS DIS:')
 
     def test_card_agenda_fica_vermelho_quando_nao_ha_horas_disponiveis(self):
         self.orcamento.horas = Decimal('8')
@@ -2909,7 +2924,7 @@ class AgendaViewTests(TestCase):
         response = self.client.get(reverse('horas:agenda'), {'mes': '2026-06'})
 
         self.assertContains(response, 'is-out-of-hours')
-        self.assertContains(response, 'HRS DIS: 00:00')
+        self.assertNotContains(response, 'HRS DIS:')
         self.assertContains(response, '.agenda-event.is-out-of-hours')
 
     def test_card_agenda_mantem_cor_normal_quando_ha_horas_disponiveis(self):
@@ -2923,7 +2938,7 @@ class AgendaViewTests(TestCase):
         card = response.content.decode().split('Com saldo', 1)[0].rsplit('<div class="agenda-event', 1)[-1]
 
         self.assertNotIn('is-out-of-hours', card.split('">', 1)[0])
-        self.assertContains(response, 'HRS DIS: 01:00')
+        self.assertNotContains(response, 'HRS DIS:')
 
     def test_card_agenda_exibe_botao_apontar_com_data_e_orcamento(self):
         atividade = self.criar_atividade(

@@ -126,6 +126,8 @@
   <script>
     const agendaForm = document.getElementById('agenda-save-form');
     const maximumHoursField = document.getElementById('{{ form.total_horas_maximo.id_for_label }}');
+    const startTimeField = document.getElementById('{{ form.hora_inicio.id_for_label }}');
+    const endTimeField = document.getElementById('{{ form.hora_fim.id_for_label }}');
     const budgetField = document.getElementById('{{ form.orcamento.id_for_label }}');
     const clientField = document.getElementById('{{ form.cliente.id_for_label }}');
     const ticketField = document.getElementById('{{ form.numero_chamado.id_for_label }}');
@@ -147,8 +149,31 @@
       input.value = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
     }
 
+    function timeToMinutes(value) {
+      if (!/^\d{2}:\d{2}$/.test(value)) return null;
+      const [hours, minutes] = value.split(':').map(Number);
+      return (hours * 60) + minutes;
+    }
+
+    function formatMinutesAsDuration(totalMinutes) {
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = totalMinutes % 60;
+      return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+    }
+
+    function suggestMaximumHoursFromSchedule() {
+      const startMinutes = timeToMinutes(startTimeField.value);
+      const endMinutes = timeToMinutes(endTimeField.value);
+      if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) return;
+      maximumHoursField.value = formatMinutesAsDuration(endMinutes - startMinutes);
+    }
     maximumHoursField.addEventListener('input', () => maskDurationInput(maximumHoursField));
     maximumHoursField.addEventListener('blur', () => normalizeDurationInput(maximumHoursField));
+    startTimeField.addEventListener('change', suggestMaximumHoursFromSchedule);
+    endTimeField.addEventListener('change', suggestMaximumHoursFromSchedule);
+    startTimeField.addEventListener('input', suggestMaximumHoursFromSchedule);
+    endTimeField.addEventListener('input', suggestMaximumHoursFromSchedule);
+    suggestMaximumHoursFromSchedule();
     agendaForm.addEventListener('submit', () => normalizeDurationInput(maximumHoursField));
 
     {% if not atividade %}

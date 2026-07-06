@@ -114,6 +114,7 @@ nav { padding: 12px 0; flex: 1; }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
 .form-row.single { grid-template-columns: 1fr; }
 .form-row.triple { grid-template-columns: 1fr 1fr 1fr; }
+.form-row.quad { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .agenda-schedule-row {
   display: grid;
   grid-template-columns: 150px 110px 150px 110px 180px;
@@ -197,9 +198,10 @@ table { width: 100%; border-collapse: collapse; }
   width: 100%;
 }
 .orcamentos-table .col-orcamento { width: 7%; }
-.orcamentos-table .col-cliente { width: 8%; }
-.orcamentos-table .col-chamado { width: 9%; }
-.orcamentos-table .col-descricao { width: 12%; }
+.orcamentos-table .col-cliente { width: 7%; }
+.orcamentos-table .col-nome-cliente { width: 10%; }
+.orcamentos-table .col-chamado { width: 8%; }
+.orcamentos-table .col-descricao { width: 11%; }
 .orcamentos-table .col-horas { width: 7%; }
 .orcamentos-table .col-responsavel { width: 11%; }
 .orcamentos-table .col-pmo { width: 9%; }
@@ -265,16 +267,17 @@ table { width: 100%; border-collapse: collapse; }
   }
   .orcamentos-table td:nth-child(1)::before { content: 'Orçamento'; }
   .orcamentos-table td:nth-child(2)::before { content: 'Cliente'; }
-  .orcamentos-table td:nth-child(3)::before { content: 'Chamado'; }
-  .orcamentos-table td:nth-child(4)::before { content: 'Descrição'; }
-  .orcamentos-table td:nth-child(5)::before { content: 'Horas'; }
-  .orcamentos-table td:nth-child(6)::before { content: 'Adicionais'; }
-  .orcamentos-table td:nth-child(7)::before { content: 'Apontadas'; }
-  .orcamentos-table td:nth-child(8)::before { content: 'Disponíveis'; }
-  .orcamentos-table td:nth-child(9)::before { content: 'Responsável'; }
-  .orcamentos-table td:nth-child(10)::before { content: 'PMO'; }
-  .orcamentos-table td:nth-child(11)::before { content: 'Status'; }
-  .orcamentos-table td:nth-child(12)::before { content: 'Ações'; }
+  .orcamentos-table td:nth-child(3)::before { content: 'Nome Cliente'; }
+  .orcamentos-table td:nth-child(4)::before { content: 'Chamado'; }
+  .orcamentos-table td:nth-child(5)::before { content: 'Descrição'; }
+  .orcamentos-table td:nth-child(6)::before { content: 'Horas'; }
+  .orcamentos-table td:nth-child(7)::before { content: 'Adicionais'; }
+  .orcamentos-table td:nth-child(8)::before { content: 'Apontadas'; }
+  .orcamentos-table td:nth-child(9)::before { content: 'Disponíveis'; }
+  .orcamentos-table td:nth-child(10)::before { content: 'Responsável'; }
+  .orcamentos-table td:nth-child(11)::before { content: 'PMO'; }
+  .orcamentos-table td:nth-child(12)::before { content: 'Status'; }
+  .orcamentos-table td:nth-child(13)::before { content: 'Ações'; }
   .orcamento-actions { justify-content: flex-start; }
 }
 thead { background: var(--surface2); }
@@ -793,7 +796,7 @@ tr.processed-row .desc {
   .logo { border-bottom: none; border-right: 1px solid var(--border); }
   .sidebar-footer { display: none; }
   .page { padding: 20px 18px; }
-  .form-row, .form-row.triple, .agenda-schedule-row { grid-template-columns: 1fr; }
+  .form-row, .form-row.triple, .form-row.quad, .agenda-schedule-row { grid-template-columns: 1fr; }
   .estimate-line,
   .estimate-line-main,
   .estimate-line-hours { grid-template-columns: 1fr; }

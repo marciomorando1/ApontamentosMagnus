@@ -227,7 +227,7 @@ class OrcamentoForm(forms.ModelForm):
 
     class Meta:
         model = Orcamento
-        fields = ['codigo', 'codigo_cliente', 'numero_chamado', 'nome', 'horas', 'pmo']
+        fields = ['codigo', 'codigo_cliente', 'nome_cliente', 'numero_chamado', 'nome', 'horas', 'pmo']
         error_messages = {
             'codigo': {
                 'unique': 'Já existe um orçamento com este código.',
@@ -250,6 +250,9 @@ class OrcamentoForm(forms.ModelForm):
 
     def clean_codigo_cliente(self):
         return self.cleaned_data['codigo_cliente'].strip()
+
+    def clean_nome_cliente(self):
+        return self.cleaned_data['nome_cliente'].strip()
 
     def clean_numero_chamado(self):
         return self.cleaned_data['numero_chamado'].strip()

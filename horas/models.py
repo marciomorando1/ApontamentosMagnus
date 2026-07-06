@@ -61,6 +61,7 @@ class Orcamento(models.Model):
     )
     codigo = models.CharField(max_length=20, unique=True, validators=[somente_numeros_validator])
     codigo_cliente = models.CharField(max_length=50, blank=True, validators=[somente_numeros_validator])
+    nome_cliente = models.CharField(max_length=200, blank=True)
     numero_chamado = models.CharField(max_length=100, blank=True, validators=[somente_numeros_validator])
     nome = models.CharField(max_length=200, blank=True)
     horas = models.DecimalField(max_digits=8, decimal_places=2, default=0)

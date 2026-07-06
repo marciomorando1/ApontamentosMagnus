@@ -4,7 +4,9 @@
   {% else %}
     <div class="agenda-event-title">{{ atividade.titulo }}</div>
   {% endif %}
-  <div class="agenda-event-subtitle">{{ atividade.cliente }}</div>
+  <div class="agenda-event-subtitle">
+    {% if atividade.orcamento.codigo_cliente %}{{ atividade.orcamento.codigo_cliente }}{% else %}{{ atividade.cliente }}{% endif %}{% if atividade.orcamento.nome_cliente %} - {{ atividade.orcamento.nome_cliente }}{% endif %}
+  </div>
   <div class="agenda-event-meta">
     {% if atividade.numero_chamado %}<span>Chamado {{ atividade.numero_chamado }}</span>{% endif %}
     <span>{{ atividade.orcamento.codigo }}</span>
@@ -16,7 +18,6 @@
       <span>Máx. {{ atividade.total_horas_maximo_formatado }}</span>
     {% endif %}
     <span>HRS APT: {{ atividade.orcamento.horas_apontadas_formatadas }}</span>
-    <span>HRS DIS: {{ atividade.orcamento.horas_disponiveis_formatadas }}</span>
   </div>
   <div class="agenda-event-actions">
     {% if atividade.can_manage %}

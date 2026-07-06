@@ -8,7 +8,7 @@
   <form method="post" class="add-orc-card" style="margin-bottom:24px;">
     {% csrf_token %}
     <h3>Adicionar orçamento</h3>
-    <div class="form-row triple">
+    <div class="form-row quad">
       <div class="field">
         <label for="{{ form.codigo.id_for_label }}">Código</label>
         {{ form.codigo }}
@@ -18,6 +18,11 @@
         <label for="{{ form.codigo_cliente.id_for_label }}">Código do Cliente</label>
         {{ form.codigo_cliente }}
         {% for error in form.codigo_cliente.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
+        <label for="{{ form.nome_cliente.id_for_label }}">Nome do Cliente</label>
+        {{ form.nome_cliente }}
+        {% for error in form.nome_cliente.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
       </div>
       <div class="field">
         <label for="{{ form.numero_chamado.id_for_label }}">Número do Chamado</label>
@@ -92,6 +97,7 @@
       <colgroup>
         <col class="col-orcamento">
         <col class="col-cliente">
+        <col class="col-nome-cliente">
         <col class="col-chamado">
         <col class="col-descricao">
         <col class="col-horas">
@@ -107,6 +113,7 @@
         <tr>
           <th>Orçamento</th>
           <th>Código do Cliente</th>
+          <th>Nome do Cliente</th>
           <th>Número do Chamado</th>
           <th>Nome / Descrição</th>
           <th>Horas</th>
@@ -124,6 +131,7 @@
           <tr>
             <td class="mono accent-text">{{ orcamento.codigo }}</td>
             <td class="mono">{{ orcamento.codigo_cliente|default:'—' }}</td>
+            <td>{{ orcamento.nome_cliente|default:'—' }}</td>
             <td class="mono">{{ orcamento.numero_chamado|default:'—' }}</td>
             <td>{{ orcamento.nome|default:'—' }}</td>
             <td class="mono accent-text">{{ orcamento.horas_formatadas }}</td>
@@ -153,7 +161,7 @@
           </tr>
         {% empty %}
           <tr>
-            <td colspan="12"><div class="empty-inline">Nenhum orçamento cadastrado.</div></td>
+            <td colspan="13"><div class="empty-inline">Nenhum orçamento cadastrado.</div></td>
           </tr>
         {% endfor %}
       </tbody>

@@ -14,6 +14,7 @@ from .models import (
     AgendaAtividade,
     Estimativa,
     Fase,
+    FolgaFeriado,
     Orcamento,
     Registro,
     Servico,
@@ -253,6 +254,15 @@ class TimerViewTests(AuthenticatedTestCase):
         self.assertContains(response, 'data-horas="20:30"', html=False)
         self.assertContains(response, 'function updateBudgetHours()', html=False)
         self.assertContains(response, "budgetField.addEventListener('change', updateBudgetHours)", html=False)
+
+    def test_base_autenticada_exibe_alternancia_de_tema(self):
+        response = self.client.get(reverse('horas:timer'))
+
+        self.assertContains(response, 'data-theme-toggle', html=False)
+        self.assertContains(response, 'Tema claro')
+        self.assertContains(response, "localStorage.getItem('horas-theme')", html=False)
+        self.assertContains(response, "document.documentElement.setAttribute('data-theme', 'light')", html=False)
+        self.assertContains(response, "document.documentElement.removeAttribute('data-theme')", html=False)
 
     def test_apontamento_preenche_orcamento_da_agenda_mesmo_se_inativo(self):
         self.orcamento.ativo = False
@@ -2538,6 +2548,166 @@ class AgendaViewTests(TestCase):
             total_horas_maximo=Decimal('16'),
         )
 
+    def test_menu_folgas_feriados_aparece_para_usuario_logado(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('horas:timer'))
+
+        self.assertContains(response, reverse('horas:folgas_feriados'))
+        self.assertContains(response, 'Folgas/Feriados')
+
+    def test_usuario_comum_cria_folga_na_propria_agenda(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(reverse('horas:folgas_feriados'), data={'data': '2026-06-15', 'descricao': 'Folga pessoal'})
+
+        self.assertEqual(response.status_code, 302)
+        folga = FolgaFeriado.objects.get(descricao='Folga pessoal')
+        self.assertEqual(folga.user, self.user)
+        self.assertEqual(folga.criado_por, self.user)
+
+    def test_gerente_cria_folga_para_todos_os_usuarios(self):
+        self.client.force_login(self.gp)
+
+        response = self.client.post(reverse('horas:folgas_feriados'), data={'data': '2026-06-16', 'descricao': 'Feriado geral', 'aplicar_todos': 'on'})
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(FolgaFeriado.objects.filter(descricao='Feriado geral').count(), 1)
+        folga = FolgaFeriado.objects.get(descricao='Feriado geral')
+        self.assertTrue(folga.abrangencia_todos)
+        self.assertIsNone(folga.user)
+        self.assertEqual(folga.user_nome, 'Todos')
+
+    def test_gerente_edita_folga_para_todos_em_um_unico_registro(self):
+        folga = FolgaFeriado.objects.create(
+            user=None,
+            criado_por=self.gp,
+            data=date(2026, 6, 16),
+            descricao='Feriado geral',
+            abrangencia_todos=True,
+        )
+        self.client.force_login(self.gp)
+
+        response = self.client.get(reverse('horas:folgas_feriados'))
+
+        self.assertContains(response, 'Todos')
+        self.assertContains(response, reverse('horas:folga_feriado_editar', args=[folga.pk]))
+
+        response = self.client.post(
+            reverse('horas:folga_feriado_editar', args=[folga.pk]),
+            data={'data': '2026-06-20', 'descricao': 'Feriado alterado'},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(FolgaFeriado.objects.count(), 1)
+        folga.refresh_from_db()
+        self.assertTrue(folga.abrangencia_todos)
+        self.assertIsNone(folga.user)
+        self.assertEqual(folga.data, date(2026, 6, 20))
+        self.assertEqual(folga.descricao, 'Feriado alterado')
+
+        agenda = self.client.get(
+            reverse('horas:agenda'),
+            {'mes': '2026-06', 'usuario': [self.user.pk, self.other_user.pk]},
+        )
+        self.assertContains(agenda, 'Feriado alterado', count=2)
+
+
+    def test_grid_permite_editar_apenas_quem_criou_folga(self):
+        folga_propria = FolgaFeriado.objects.create(user=self.user, criado_por=self.user, data=date(2026, 6, 17), descricao='Criada por mim')
+        folga_gp = FolgaFeriado.objects.create(user=self.user, criado_por=self.gp, data=date(2026, 6, 18), descricao='Criada pelo GP')
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('horas:folgas_feriados'))
+
+        self.assertContains(response, reverse('horas:folga_feriado_editar', args=[folga_propria.pk]))
+        self.assertNotContains(response, reverse('horas:folga_feriado_editar', args=[folga_gp.pk]))
+        response = self.client.get(reverse('horas:folga_feriado_editar', args=[folga_gp.pk]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_agenda_exibe_folga_feriado_em_card_amarelo(self):
+        FolgaFeriado.objects.create(user=self.user, criado_por=self.user, data=date(2026, 6, 10), descricao='Descanso')
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('horas:agenda'), {'mes': '2026-06'})
+
+        self.assertContains(response, 'agenda-event-holiday')
+        self.assertContains(response, 'Folga/Feriado')
+        self.assertContains(response, 'Descanso')
+
+    def test_agenda_comparativa_exibe_folgas_por_usuario(self):
+        FolgaFeriado.objects.create(user=self.user, criado_por=self.gp, data=date(2026, 6, 10), descricao='Folga usuario')
+        FolgaFeriado.objects.create(user=self.other_user, criado_por=self.gp, data=date(2026, 6, 10), descricao='Folga outro')
+        self.client.force_login(self.gp)
+
+        response = self.client.get(reverse('horas:agenda'), {'mes': '2026-06', 'usuario': [self.user.pk, self.other_user.pk]})
+
+        self.assertContains(response, 'Folga usuario')
+        self.assertContains(response, 'Folga outro')
+        day = next(
+            day
+            for week in response.context['agenda_weeks']
+            for day in week
+            if day['date'] == date(2026, 6, 10)
+        )
+        grupos = {group['user'].pk: [folga.descricao for folga in group['folgas_feriados']] for group in day['user_groups']}
+        self.assertEqual(grupos[self.user.pk], ['Folga usuario'])
+        self.assertEqual(grupos[self.other_user.pk], ['Folga outro'])
+
+    def test_nao_cria_atividade_em_data_com_folga_feriado(self):
+        FolgaFeriado.objects.create(user=self.user, criado_por=self.user, data=date(2026, 6, 10), descricao='Folga pessoal')
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse('horas:agenda_nova'),
+            data={
+                'cliente': 'Cliente Agenda',
+                'numero_chamado': 'CH-200',
+                'orcamento': self.orcamento.pk,
+                'servico': self.servico.pk,
+                'produto': 'ERP',
+                'titulo': 'Atividade em folga',
+                'descricao': 'Descricao',
+                'data_inicio': '2026-06-10',
+                'hora_inicio': '09:00',
+                'data_fim': '2026-06-10',
+                'hora_fim': '18:00',
+                'total_horas_maximo': '08:00',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(AgendaAtividade.objects.filter(titulo='Atividade em folga').exists())
+        self.assertFormError(response.context['form'], 'data_inicio', 'Não é possível cadastrar atividade em data com folga/feriado.')
+
+    def test_gerente_nao_cria_atividade_em_intervalo_com_folga_feriado_do_usuario(self):
+        FolgaFeriado.objects.create(user=self.user, criado_por=self.gp, data=date(2026, 6, 11), descricao='Folga usuario')
+        self.client.force_login(self.gp)
+
+        response = self.client.post(
+            reverse('horas:agenda_nova'),
+            data={
+                'user': self.user.pk,
+                'cliente': 'Cliente Agenda',
+                'numero_chamado': 'CH-100',
+                'orcamento': self.orcamento.pk,
+                'servico': self.servico.pk,
+                'produto': 'ERP',
+                'titulo': 'Atividade delegada em folga',
+                'descricao': 'Descricao',
+                'data_inicio': '2026-06-10',
+                'hora_inicio': '08:30',
+                'data_fim': '2026-06-12',
+                'hora_fim': '17:30',
+                'total_horas_maximo': '20:30',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(AgendaAtividade.objects.filter(titulo='Atividade delegada em folga').exists())
+        self.assertFormError(response.context['form'], 'data_inicio', 'Não é possível cadastrar atividade em data com folga/feriado.')
+
+
     def test_usuario_comum_ve_apenas_propria_agenda(self):
         self.criar_atividade(user=self.user, criado_por=self.user, titulo='Minha atividade')
         self.criar_atividade(user=self.other_user, criado_por=self.other_user, titulo='Atividade de outro')
@@ -2785,13 +2955,13 @@ class AgendaViewTests(TestCase):
         self.assertNotContains(response, 'name="cliente" maxlength="200" readonly="readonly"', html=False)
         self.assertNotContains(response, 'name="numero_chamado" maxlength="100" readonly="readonly"', html=False)
 
-    def test_formulario_produto_exibe_apenas_erp_e_hcm(self):
+    def test_formulario_produto_exibe_opcoes_disponiveis(self):
         self.client.force_login(self.user)
 
         response = self.client.get(reverse('horas:agenda_nova'))
         produto = response.context['form'].fields['produto']
 
-        self.assertEqual(list(produto.choices), [('', '— selecione —'), ('ERP', 'ERP'), ('HCM', 'HCM')])
+        self.assertEqual(list(produto.choices), [('', '— selecione —'), ('ERP', 'ERP'), ('HCM', 'HCM'), ('PMO', 'PMO'), ('GAS', 'GAS')])
         self.assertTrue(produto.required)
 
     def test_rejeita_produto_fora_da_lista(self):
@@ -2912,6 +3082,22 @@ class AgendaViewTests(TestCase):
 
         self.assertContains(response, 'HRS APT: 10:00')
         self.assertNotContains(response, 'HRS DIS:')
+
+    def test_card_agenda_exibe_pmo_do_orcamento(self):
+        pmo = User.objects.create_user(
+            username='pmo-agenda',
+            password='senha-segura',
+            first_name='Patricia',
+            last_name='PMO',
+        )
+        self.orcamento.pmo = pmo
+        self.orcamento.save(update_fields=['pmo'])
+        self.criar_atividade(user=self.user, criado_por=self.user, titulo='Com PMO')
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('horas:agenda'), {'mes': '2026-06'})
+
+        self.assertContains(response, 'PMO: Patricia PMO')
 
     def test_card_agenda_fica_vermelho_quando_nao_ha_horas_disponiveis(self):
         self.orcamento.horas = Decimal('8')

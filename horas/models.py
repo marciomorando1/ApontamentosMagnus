@@ -352,6 +352,41 @@ class AgendaAtividade(models.Model):
         return f'{self.titulo} - {self.user}'
 
 
+class FolgaFeriado(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='folgas_feriados',
+        null=True,
+        blank=True,
+    )
+    criado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='folgas_feriados_criadas',
+    )
+    data = models.DateField()
+    descricao = models.CharField(max_length=200)
+    abrangencia_todos = models.BooleanField(default=False)
+    criado_em = models.DateTimeField(auto_now_add=True)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-data', '-abrangencia_todos', 'user__username', 'pk']
+
+    @property
+    def user_nome(self):
+        if self.abrangencia_todos:
+            return 'Todos'
+        return self.user.get_full_name() or self.user.username
+
+    @property
+    def criado_por_nome(self):
+        return self.criado_por.get_full_name() or self.criado_por.username
+
+    def __str__(self):
+        return f'{self.data} - {self.user_nome}'
+
 class Registro(models.Model):
     PROCESSADO_SIM = 'S'
     PROCESSADO_NAO = 'N'

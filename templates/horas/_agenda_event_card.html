@@ -17,6 +17,7 @@
     {% if atividade.total_horas_maximo is not None %}
       <span>Máx. {{ atividade.total_horas_maximo_formatado }}</span>
     {% endif %}
+    {% if atividade.orcamento.pmo_nome %}<span>PMO: {{ atividade.orcamento.pmo_nome }}</span>{% endif %}
     <span>HRS APT: {{ atividade.orcamento.horas_apontadas_formatadas }}</span>
   </div>
   <div class="agenda-event-actions">

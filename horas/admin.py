@@ -4,7 +4,7 @@ from django.contrib.auth.forms import AdminUserCreationForm
 from django.contrib import admin
 from django import forms
 
-from .models import AgendaAtividade, Fase, Orcamento, Registro, Servico, SolicitacaoHoras, UserProfile
+from .models import AgendaAtividade, Fase, FolgaFeriado, Orcamento, Registro, Servico, SolicitacaoHoras, UserProfile
 
 
 User = get_user_model()
@@ -176,3 +176,9 @@ class AgendaAtividadeAdmin(admin.ModelAdmin):
         'servico__codigo',
         'servico__descricao',
     )
+
+@admin.register(FolgaFeriado)
+class FolgaFeriadoAdmin(admin.ModelAdmin):
+    list_display = ('data', 'descricao', 'user', 'criado_por', 'criado_em')
+    list_filter = ('data', 'user', 'criado_por')
+    search_fields = ('descricao', 'user__username', 'criado_por__username')

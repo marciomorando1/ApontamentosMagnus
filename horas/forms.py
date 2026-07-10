@@ -12,6 +12,7 @@ from .models import (
     Estimativa,
     EstimativaItem,
     Fase,
+    FolgaFeriado,
     Orcamento,
     Registro,
     Servico,
@@ -437,6 +438,65 @@ class EstimativaItemForm(forms.ModelForm):
         return cleaned_data
 
 
+class FolgaFeriadoForm(forms.ModelForm):
+    aplicar_todos = forms.BooleanField(
+        label='Criar para todos os usuários',
+        required=False,
+    )
+
+    class Meta:
+        model = FolgaFeriado
+        fields = ['user', 'data', 'descricao']
+        widgets = {
+            'data': DateInput(),
+            'descricao': forms.TextInput(attrs={'maxlength': 200}),
+        }
+
+    def __init__(self, *args, current_user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.current_user = current_user
+        self.is_gp = bool(
+            current_user
+            and hasattr(current_user, 'profile')
+            and current_user.profile.is_gerente_projetos
+        )
+        self.fields['user'].queryset = User.objects.order_by('username')
+        self.fields['user'].label = 'Usuário'
+        self.fields['data'].label = 'Data'
+        self.fields['descricao'].label = 'Descrição'
+
+        if self.instance.pk:
+            self.fields.pop('aplicar_todos', None)
+            if self.instance.abrangencia_todos:
+                self.fields['user'].initial = None
+                self.fields['user'].widget = forms.HiddenInput()
+                self.fields['user'].required = False
+
+        if self.is_gp:
+            self.fields['user'].required = False
+        else:
+            self.fields['user'].queryset = User.objects.filter(pk=getattr(current_user, 'pk', None))
+            self.fields['user'].initial = current_user
+            self.fields['user'].widget = forms.HiddenInput()
+            self.fields['user'].required = False
+            self.fields.pop('aplicar_todos', None)
+
+    def clean_descricao(self):
+        return self.cleaned_data['descricao'].strip()
+
+    def clean(self):
+        cleaned_data = super().clean()
+        aplicar_todos = cleaned_data.get('aplicar_todos') or bool(
+            self.instance.pk and self.instance.abrangencia_todos
+        )
+        if not self.is_gp:
+            cleaned_data['user'] = self.current_user
+        elif aplicar_todos:
+            cleaned_data['user'] = None
+        elif not cleaned_data.get('user'):
+            self.add_error('user', 'Selecione um usuário ou marque para criar para todos.')
+        return cleaned_data
+
 class AgendaAtividadeForm(forms.ModelForm):
     produto = forms.ChoiceField(
         choices=AGENDA_PRODUTO_CHOICES,
@@ -545,6 +605,29 @@ class AgendaAtividadeForm(forms.ModelForm):
             cleaned_data['numero_chamado'] = orcamento.numero_chamado
             if not orcamento.codigo_cliente:
                 self.add_error('cliente', 'O orçamento selecionado não possui código do cliente.')
+
+        target_user = cleaned_data.get('user')
+        if not self.is_gp:
+            target_user = self.current_user
+
+        data_inicio = cleaned_data.get('data_inicio')
+        data_fim = cleaned_data.get('data_fim')
+        should_validate_folga = (
+            target_user
+            and data_inicio
+            and data_fim
+            and data_fim >= data_inicio
+            and (
+                not self.instance.pk
+                or {'user', 'data_inicio', 'data_fim'}.intersection(self.changed_data)
+            )
+        )
+        if should_validate_folga and FolgaFeriado.objects.filter(
+            Q(user=target_user) | Q(abrangencia_todos=True),
+            data__gte=data_inicio,
+            data__lte=data_fim,
+        ).exists():
+            self.add_error('data_inicio', 'Não é possível cadastrar atividade em data com folga/feriado.')
         return cleaned_data
 
 

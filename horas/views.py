@@ -35,6 +35,7 @@ from .forms import (
     EstimativaItemCreateFormSet,
     EstimativaItemFormSet,
     FaseForm,
+    FolgaFeriadoForm,
     DurationField,
     OrcamentoForm,
     OrcamentoImportForm,
@@ -47,6 +48,7 @@ from .models import (
     AgendaAtividade,
     Estimativa,
     Fase,
+    FolgaFeriado,
     Orcamento,
     Registro,
     Servico,
@@ -64,7 +66,7 @@ MONTH_LABELS = [
     '',
     'Janeiro',
     'Fevereiro',
-    'Março',
+    'MarÃ§o',
     'Abril',
     'Maio',
     'Junho',
@@ -148,8 +150,15 @@ def _user_can_export_csv(user):
 
 
 def _base_agenda_queryset():
-    return AgendaAtividade.objects.select_related('user', 'criado_por', 'orcamento', 'servico')
+    return AgendaAtividade.objects.select_related('user', 'criado_por', 'orcamento', 'orcamento__pmo', 'servico')
 
+
+def _base_folga_feriado_queryset():
+    return FolgaFeriado.objects.select_related('user', 'criado_por')
+
+
+def _folga_feriado_manage_queryset(user):
+    return _base_folga_feriado_queryset().filter(criado_por=user)
 
 def _agenda_manage_queryset(user):
     if _user_is_gp(user):
@@ -179,10 +188,11 @@ def _month_navigation(month_start):
     return prev_month, next_month
 
 
-def _build_agenda_calendar(month_start, atividades, selected_users=None):
+def _build_agenda_calendar(month_start, atividades, selected_users=None, folgas_feriados=None):
     first_day, last_day = _month_bounds(month_start)
     cal = calendar.Calendar(firstweekday=6)
     atividades_por_dia = defaultdict(list)
+    folgas_por_dia = defaultdict(list)
     selected_users = list(selected_users or [])
 
     for atividade in atividades:
@@ -191,6 +201,9 @@ def _build_agenda_calendar(month_start, atividades, selected_users=None):
         while current_day <= final_day:
             atividades_por_dia[current_day].append(atividade)
             current_day += timedelta(days=1)
+
+    for folga in folgas_feriados or []:
+        folgas_por_dia[folga.data].append(folga)
 
     for items in atividades_por_dia.values():
         items.sort(
@@ -201,22 +214,32 @@ def _build_agenda_calendar(month_start, atividades, selected_users=None):
                 atividade.pk,
             )
         )
+    for items in folgas_por_dia.values():
+        items.sort(key=lambda folga: (folga.descricao, folga.pk))
 
     weeks = []
     for week in cal.monthdatescalendar(first_day.year, first_day.month):
         week_days = []
         for day in week:
             items = list(atividades_por_dia.get(day, []))
+            folgas_items = list(folgas_por_dia.get(day, []))
             user_groups = []
             if selected_users:
                 for selected_user in selected_users:
                     user_items = [
                         atividade for atividade in items if atividade.user_id == selected_user.pk
                     ]
+                    user_folgas = [
+                        folga
+                        for folga in folgas_items
+                        if folga.abrangencia_todos or folga.user_id == selected_user.pk
+                    ]
                     user_groups.append(
                         {
                             'user': selected_user,
                             'atividades': user_items,
+                            'folgas_feriados': user_folgas,
+                            'total_items': len(user_items) + len(user_folgas),
                         }
                     )
             week_days.append(
@@ -225,12 +248,12 @@ def _build_agenda_calendar(month_start, atividades, selected_users=None):
                     'in_month': day.month == first_day.month,
                     'is_today': day == date.today(),
                     'atividades': items,
+                    'folgas_feriados': folgas_items,
                     'user_groups': user_groups,
                 }
             )
         weeks.append(week_days)
     return weeks
-
 
 def _agenda_filter_context(month_start, selected_users):
     prev_month, next_month = _month_navigation(month_start)
@@ -256,7 +279,7 @@ def _filter_registros(request, *, allow_usuario_filter=False):
         data_final = date.today()
 
     if data_inicial and data_final and data_inicial > data_final:
-        messages.error(request, 'A data inicial deve ser menor ou igual à data final.')
+        messages.error(request, 'A data inicial deve ser menor ou igual Ã  data final.')
         data_inicial, data_final = data_final, data_inicial
 
     if data_inicial:
@@ -304,7 +327,7 @@ def _filter_estimativas(request):
     cliente = request.GET.get('cliente', '').strip()
 
     if data_inicial and data_final and data_inicial > data_final:
-        messages.error(request, 'A data inicial deve ser menor ou igual à data final.')
+        messages.error(request, 'A data inicial deve ser menor ou igual Ã  data final.')
         data_inicial, data_final = data_final, data_inicial
 
     if data_inicial:
@@ -347,6 +370,21 @@ def _agenda_selected_user(request):
     selected_users = _agenda_selected_users(request)
     return selected_users[0] if len(selected_users) == 1 else None
 
+
+def _agenda_folga_feriado_queryset(request, selected_users, month_start):
+    if not selected_users:
+        return _base_folga_feriado_queryset().none()
+
+    month_first_day, month_last_day = _month_bounds(month_start)
+    return (
+        _base_folga_feriado_queryset()
+        .filter(
+            Q(user__in=selected_users) | Q(abrangencia_todos=True),
+            data__gte=month_first_day,
+            data__lte=month_last_day,
+        )
+        .order_by('-abrangencia_todos', 'user__username', 'data', 'descricao', 'pk')
+    )
 
 def _agenda_list_queryset(request, selected_users, month_start):
     if not selected_users:
@@ -689,7 +727,7 @@ def _read_orcamentos_xlsx(arquivo):
             sheet_path = 'xl/' + sheet_target.lstrip('/').replace('../', '')
             sheet_root = ET.fromstring(workbook.read(sheet_path))
     except (AttributeError, IndexError, KeyError, ValueError, zipfile.BadZipFile, ET.ParseError) as exc:
-        raise ValueError('Não foi possível ler a planilha XLSX enviada.') from exc
+        raise ValueError('NÃ£o foi possÃ­vel ler a planilha XLSX enviada.') from exc
 
     rows = []
     for row in sheet_root.findall(f'.//{{{XLSX_NS}}}sheetData/{{{XLSX_NS}}}row'):
@@ -734,12 +772,12 @@ def _clean_orcamento_import_hours(value, field):
 def _validate_orcamentos_import(rows):
     errors = []
     if not rows:
-        return [], ['A planilha está vazia.']
+        return [], ['A planilha estÃ¡ vazia.']
 
     headers = [_normalize_estimativa_text(value) for value in rows[0]]
     if headers != ORCAMENTO_IMPORT_HEADERS:
         return [], [
-            'Os cabeçalhos devem estar nesta ordem: orcamento, cliente, chamado, descricao, qtd_horas, pmo.'
+            'Os cabeÃ§alhos devem estar nesta ordem: orcamento, cliente, chamado, descricao, qtd_horas, pmo.'
         ]
 
     existing_codes = set(Orcamento.objects.values_list('codigo', flat=True))
@@ -754,17 +792,17 @@ def _validate_orcamentos_import(rows):
             value.strip() for value in values
         )
         if not codigo:
-            errors.append(f'Linha {row_number}: Código Orçamento é obrigatório.')
+            errors.append(f'Linha {row_number}: CÃ³digo OrÃ§amento Ã© obrigatÃ³rio.')
             continue
         horas = None
         pmo_user = None
         for label, value in (
-            ('Código Orçamento', codigo),
-            ('Código Cliente', codigo_cliente),
-            ('Número do Chamado', numero_chamado),
+            ('CÃ³digo OrÃ§amento', codigo),
+            ('CÃ³digo Cliente', codigo_cliente),
+            ('NÃºmero do Chamado', numero_chamado),
         ):
             if value and not value.isdigit():
-                errors.append(f'Linha {row_number}: {label} deve conter somente números.')
+                errors.append(f'Linha {row_number}: {label} deve conter somente nÃºmeros.')
         if not qtd_horas:
             errors.append(f'Linha {row_number}: Quantidade de Horas e obrigatoria.')
         else:
@@ -782,9 +820,9 @@ def _validate_orcamentos_import(rows):
             if pmo_user is None:
                 errors.append(f'Linha {row_number}: PMO "{pmo_text}" nao existe ou nao esta marcado como PMO.')
         if codigo in existing_codes:
-            errors.append(f'Linha {row_number}: o orçamento {codigo} já existe na base.')
+            errors.append(f'Linha {row_number}: o orÃ§amento {codigo} jÃ¡ existe na base.')
         if codigo in imported_codes:
-            errors.append(f'Linha {row_number}: o orçamento {codigo} está duplicado na planilha.')
+            errors.append(f'Linha {row_number}: o orÃ§amento {codigo} estÃ¡ duplicado na planilha.')
         imported_codes.add(codigo)
         orcamentos.append(
             Orcamento(
@@ -797,7 +835,7 @@ def _validate_orcamentos_import(rows):
             )
         )
     if not orcamentos and not errors:
-        errors.append('A planilha não possui orçamentos para importar.')
+        errors.append('A planilha nÃ£o possui orÃ§amentos para importar.')
     return orcamentos, errors
 
 
@@ -880,17 +918,21 @@ class AgendaView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
         selected_users = _agenda_selected_users(self.request)
         selected_user = selected_users[0] if len(selected_users) == 1 else None
         atividades = list(_agenda_list_queryset(self.request, selected_users, month_start))
+        folgas_feriados = list(_agenda_folga_feriado_queryset(self.request, selected_users, month_start))
         for atividade in atividades:
             atividade.can_manage = _can_manage_agenda_activity(self.request.user, atividade)
+        for folga in folgas_feriados:
+            folga.can_manage = folga.criado_por_id == self.request.user.pk
 
         prev_month, next_month = _month_navigation(month_start)
         context['section'] = 'agenda'
         context['is_gp'] = _user_is_gp(self.request.user)
         context['agenda_compare_mode'] = len(selected_users) > 1
         context['agenda_weeks'] = (
-            _build_agenda_calendar(month_start, atividades, selected_users) if selected_users else []
+            _build_agenda_calendar(month_start, atividades, selected_users, folgas_feriados) if selected_users else []
         )
         context['agenda_atividades'] = atividades
+        context['agenda_folgas_feriados'] = folgas_feriados
         context['agenda_filters'] = _agenda_filter_context(month_start, selected_users)
         context['agenda_url'] = _build_agenda_url(month_start, selected_users)
         context['agenda_prev_url'] = _build_agenda_url(prev_month, selected_users)
@@ -999,6 +1041,80 @@ class AgendaDeleteView(View):
         messages.success(request, 'Atividade removida da agenda.')
         return redirect(_build_agenda_url(month_start, selected_user if _user_is_gp(request.user) else request.user))
 
+
+class FolgasFeriadosView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
+    template_name = 'horas/folgas_feriados.html'
+
+    def _folgas_queryset(self):
+        queryset = _base_folga_feriado_queryset()
+        if _user_is_gp(self.request.user):
+            return queryset.order_by('-data', '-abrangencia_todos', 'user__username', 'descricao')
+        return queryset.filter(
+            Q(user=self.request.user) | Q(criado_por=self.request.user) | Q(abrangencia_todos=True)
+        ).order_by('-data', '-abrangencia_todos', 'descricao')
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        folga = getattr(self, 'folga', None)
+        form = kwargs.get('form') or FolgaFeriadoForm(instance=folga, current_user=self.request.user)
+        context['section'] = 'folgas_feriados'
+        context['is_gp'] = _user_is_gp(self.request.user)
+        context['form'] = form
+        context['folga'] = folga
+        context['folgas_feriados'] = self._folgas_queryset()
+        return context
+
+    def _save_form(self, form):
+        folga = form.save(commit=False)
+        if form.cleaned_data.get('aplicar_todos') and _user_is_gp(self.request.user):
+            folga.user = None
+            folga.abrangencia_todos = True
+        elif not _user_is_gp(self.request.user):
+            folga.user = self.request.user
+            folga.abrangencia_todos = False
+        elif not folga.abrangencia_todos:
+            folga.abrangencia_todos = False
+
+        if not folga.criado_por_id:
+            folga.criado_por = self.request.user
+        folga.save()
+        return 1
+
+    def post(self, request, *args, **kwargs):
+        form = FolgaFeriadoForm(request.POST, current_user=request.user)
+        if form.is_valid():
+            total = self._save_form(form)
+            messages.success(request, f'{total} folga/feriado(s) salvo(s) com sucesso.')
+            return redirect('horas:folgas_feriados')
+
+        messages.error(request, 'Corrija os campos destacados antes de salvar a folga/feriado.')
+        return self.render_to_response(self.get_context_data(form=form))
+
+
+class FolgaFeriadoUpdateView(FolgasFeriadosView):
+    def dispatch(self, request, *args, **kwargs):
+        self.folga = get_object_or_404(_folga_feriado_manage_queryset(request.user), pk=kwargs['pk'])
+        return super().dispatch(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        form = FolgaFeriadoForm(request.POST, instance=self.folga, current_user=request.user)
+        if form.is_valid():
+            folga = form.save(commit=False)
+            folga.criado_por = self.folga.criado_por
+            if self.folga.abrangencia_todos:
+                folga.user = None
+                folga.abrangencia_todos = True
+            elif not _user_is_gp(request.user):
+                folga.user = request.user
+                folga.abrangencia_todos = False
+            else:
+                folga.abrangencia_todos = False
+            folga.save()
+            messages.success(request, 'Folga/feriado atualizado com sucesso.')
+            return redirect('horas:folgas_feriados')
+
+        messages.error(request, 'Corrija os campos destacados antes de salvar a folga/feriado.')
+        return self.render_to_response(self.get_context_data(form=form))
 
 class TimerView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
     template_name = 'horas/timer.html'
@@ -1272,7 +1388,7 @@ class ResumoView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
         dias_trabalhados = len({registro.data for registro in registros_list})
         media_diaria = total_horas / dias_trabalhados if dias_trabalhados else 0
 
-        por_orcamento = defaultdict(lambda: {'count': 0, 'hours': 0, 'codigo': '—', 'nome': ''})
+        por_orcamento = defaultdict(lambda: {'count': 0, 'hours': 0, 'codigo': 'â€”', 'nome': ''})
         for registro in registros_list:
             item = por_orcamento[registro.orcamento_id]
             item['codigo'] = registro.orcamento.codigo
@@ -1325,11 +1441,11 @@ class SolicitacoesHorasView(AuthenticatedViewMixin, SidebarContextMixin, Templat
             solicitacao.save()
             messages.success(
                 request,
-                f'Solicitação {solicitacao.numero_solicitacao} enviada para aprovação.',
+                f'SolicitaÃ§Ã£o {solicitacao.numero_solicitacao} enviada para aprovaÃ§Ã£o.',
             )
             return redirect('horas:solicitacoes_horas')
 
-        messages.error(request, 'Corrija os campos destacados antes de enviar a solicitação.')
+        messages.error(request, 'Corrija os campos destacados antes de enviar a solicitaÃ§Ã£o.')
         return self.render_to_response(self.get_context_data(form=form))
 
 
@@ -1377,22 +1493,22 @@ class SolicitacaoHorasDecisaoView(
                 orcamento__responsavel=request.user,
             )
             if solicitacao.situacao != SolicitacaoHoras.SITUACAO_AGUARDANDO:
-                messages.warning(request, 'Esta solicitação já foi processada.')
+                messages.warning(request, 'Esta solicitaÃ§Ã£o jÃ¡ foi processada.')
                 return redirect('horas:solicitacoes_horas_pendentes')
 
             if decisao == 'aprovar':
                 solicitacao.situacao = SolicitacaoHoras.SITUACAO_APROVADO
                 solicitacao.motivo_reprovacao = observacao
-                mensagem = 'Solicitação aprovada.'
+                mensagem = 'SolicitaÃ§Ã£o aprovada.'
             elif decisao == 'reprovar':
                 if not observacao:
-                    messages.error(request, 'Informe a observação para reprovar a solicitação.')
+                    messages.error(request, 'Informe a observaÃ§Ã£o para reprovar a solicitaÃ§Ã£o.')
                     return redirect('horas:solicitacoes_horas_pendentes')
                 solicitacao.situacao = SolicitacaoHoras.SITUACAO_REPROVADO
                 solicitacao.motivo_reprovacao = observacao
-                mensagem = 'Solicitação reprovada.'
+                mensagem = 'SolicitaÃ§Ã£o reprovada.'
             else:
-                messages.error(request, 'Decisão inválida.')
+                messages.error(request, 'DecisÃ£o invÃ¡lida.')
                 return redirect('horas:solicitacoes_horas_pendentes')
 
             solicitacao.decidido_por = request.user
@@ -1442,13 +1558,13 @@ class OrcamentosView(
                         orcamento.responsavel = request.user
                     with transaction.atomic():
                         Orcamento.objects.bulk_create(orcamentos)
-                    messages.success(request, f'{len(orcamentos)} orçamento(s) importado(s) com sucesso.')
+                    messages.success(request, f'{len(orcamentos)} orÃ§amento(s) importado(s) com sucesso.')
                     return redirect('horas:orcamentos')
-                messages.error(request, 'A planilha possui erros e nenhum orçamento foi importado.')
+                messages.error(request, 'A planilha possui erros e nenhum orÃ§amento foi importado.')
                 return self.render_to_response(
                     self.get_context_data(import_form=import_form, import_errors=import_errors)
                 )
-            messages.error(request, 'Selecione uma planilha XLSX válida.')
+            messages.error(request, 'Selecione uma planilha XLSX vÃ¡lida.')
             return self.render_to_response(self.get_context_data(import_form=import_form))
 
         form = OrcamentoForm(request.POST)
@@ -1456,10 +1572,10 @@ class OrcamentosView(
             orcamento = form.save(commit=False)
             orcamento.responsavel = request.user
             orcamento.save()
-            messages.success(request, 'Orçamento adicionado com sucesso.')
+            messages.success(request, 'OrÃ§amento adicionado com sucesso.')
             return redirect('horas:orcamentos')
 
-        messages.error(request, 'Corrija os campos destacados antes de adicionar o orçamento.')
+        messages.error(request, 'Corrija os campos destacados antes de adicionar o orÃ§amento.')
         return self.render_to_response(self.get_context_data(form=form))
 
 
@@ -1490,10 +1606,10 @@ class OrcamentoUpdateView(
         form = OrcamentoForm(request.POST, instance=self.orcamento)
         if form.is_valid():
             form.save()
-            messages.success(request, 'Orçamento atualizado com sucesso.')
+            messages.success(request, 'OrÃ§amento atualizado com sucesso.')
             return redirect('horas:orcamentos')
 
-        messages.error(request, 'Corrija os campos destacados antes de salvar o orçamento.')
+        messages.error(request, 'Corrija os campos destacados antes de salvar o orÃ§amento.')
         return self.render_to_response(self.get_context_data(form=form))
 
 
@@ -1532,10 +1648,10 @@ class ServicosView(GerenteProjetosRequiredMixin, AuthenticatedViewMixin, Sidebar
         form = ServicoForm(request.POST)
         if form.is_valid():
             form.save()
-            messages.success(request, 'Serviço adicionado com sucesso.')
+            messages.success(request, 'ServiÃ§o adicionado com sucesso.')
             return redirect('horas:servicos')
 
-        messages.error(request, 'Corrija os campos destacados antes de adicionar o serviço.')
+        messages.error(request, 'Corrija os campos destacados antes de adicionar o serviÃ§o.')
         return self.render_to_response(self.get_context_data(form=form))
 
 
@@ -1544,13 +1660,13 @@ class OrcamentoDeleteView(GerenteProjetosRequiredMixin, AuthenticatedViewMixin, 
         orcamento = get_object_or_404(Orcamento, pk=pk, responsavel=request.user)
         try:
             orcamento.delete()
-            messages.success(request, 'Orçamento removido.')
+            messages.success(request, 'OrÃ§amento removido.')
         except ProtectedError:
             orcamento.ativo = False
             orcamento.save(update_fields=['ativo'])
             messages.warning(
                 request,
-                'O orçamento possui registros vinculados e foi desativado em vez de removido.',
+                'O orÃ§amento possui registros vinculados e foi desativado em vez de removido.',
             )
         return redirect('horas:orcamentos')
 
@@ -1567,7 +1683,7 @@ class ServicoDeleteView(GerenteProjetosRequiredMixin, AuthenticatedViewMixin, Vi
     def post(self, request, pk):
         servico = get_object_or_404(Servico, pk=pk)
         servico.delete()
-        messages.success(request, 'Serviço removido.')
+        messages.success(request, 'ServiÃ§o removido.')
         return redirect('horas:servicos')
 
 

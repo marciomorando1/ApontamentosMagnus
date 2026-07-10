@@ -5,8 +5,17 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Apontamento de Horas{% endblock %}</title>
+  <script>
+    (function () {
+      try {
+        if (localStorage.getItem('horas-theme') === 'light') {
+          document.documentElement.setAttribute('data-theme', 'light');
+        }
+      } catch (error) {}
+    })();
+  </script>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{% static 'css/style.css' %}?v=agenda-outlook-1">
+  <link rel="stylesheet" href="{% static 'css/style.css' %}?v=theme-toggle-1">
 </head>
 <body class="{% if not user.is_authenticated %}auth-body{% endif %}">
   {% if user.is_authenticated %}
@@ -16,12 +25,19 @@
         HORAS<br>
         <span>APONTAMENTO</span>
       </div>
+      <button class="btn btn-ghost btn-sm theme-toggle" type="button" data-theme-toggle aria-label="Alternar tema">
+        <span data-theme-toggle-label>Claro</span>
+        <span class="theme-toggle-icon" data-theme-toggle-icon>CL</span>
+      </button>
       <nav>
         <a class="nav-item {% if section == 'timer' %}active{% endif %}" href="{% url 'horas:timer' %}">
           <span class="nav-icon">⏱</span> Timer
         </a>
         <a class="nav-item {% if section == 'agenda' %}active{% endif %}" href="{% url 'horas:agenda' %}">
           <span class="nav-icon">A</span> Agenda
+        </a>
+        <a class="nav-item {% if section == 'folgas_feriados' %}active{% endif %}" href="{% url 'horas:folgas_feriados' %}">
+          <span class="nav-icon">F</span> Folgas/Feriados
         </a>
         <a class="nav-item {% if section == 'registros' %}active{% endif %}" href="{% url 'horas:registros' %}">
           <span class="nav-icon">📋</span> Registros
@@ -102,6 +118,35 @@
       input.setCustomValidity(minutes > 59 ? 'Informe minutos entre 00 e 59.' : '');
     }
 
+
+    const themeToggle = document.querySelector('[data-theme-toggle]');
+    const themeToggleLabel = document.querySelector('[data-theme-toggle-label]');
+    const themeToggleIcon = document.querySelector('[data-theme-toggle-icon]');
+
+    function setThemePreference(theme) {
+      const isLight = theme === 'light';
+      if (isLight) {
+        document.documentElement.setAttribute('data-theme', 'light');
+      } else {
+        document.documentElement.removeAttribute('data-theme');
+      }
+      if (themeToggleLabel) themeToggleLabel.textContent = isLight ? 'Escuro' : 'Claro';
+      if (themeToggleIcon) themeToggleIcon.textContent = isLight ? 'ES' : 'CL';
+      try {
+        if (isLight) {
+          localStorage.setItem('horas-theme', 'light');
+        } else {
+          localStorage.removeItem('horas-theme');
+        }
+      } catch (error) {}
+    }
+
+    setThemePreference(document.documentElement.hasAttribute('data-theme') ? 'light' : 'dark');
+    if (themeToggle) {
+      themeToggle.addEventListener('click', () => {
+        setThemePreference(document.documentElement.hasAttribute('data-theme') ? 'dark' : 'light');
+      });
+    }
     document.querySelectorAll('[data-compact-duration="true"]').forEach((field) => {
       field.addEventListener('input', () => maskCompactDuration(field));
       field.addEventListener('paste', () => setTimeout(() => maskCompactDuration(field)));
@@ -110,3 +155,4 @@
   {% block scripts %}{% endblock %}
 </body>
 </html>
+

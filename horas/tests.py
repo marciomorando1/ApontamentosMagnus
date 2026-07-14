@@ -2775,7 +2775,7 @@ class AgendaViewTests(TestCase):
         self.assertEqual(grupos[self.user.pk], ['Folga usuario'])
         self.assertEqual(grupos[self.other_user.pk], ['Folga outro'])
 
-    def test_nao_cria_atividade_em_data_com_folga_feriado(self):
+    def test_cria_atividade_em_data_com_folga_feriado(self):
         FolgaFeriado.objects.create(user=self.user, criado_por=self.user, data=date(2026, 6, 10), descricao='Folga pessoal')
         self.client.force_login(self.user)
 
@@ -2797,11 +2797,10 @@ class AgendaViewTests(TestCase):
             },
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertFalse(AgendaAtividade.objects.filter(titulo='Atividade em folga').exists())
-        self.assertFormError(response.context['form'], 'data_inicio', 'Não é possível cadastrar atividade em data com folga/feriado.')
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(AgendaAtividade.objects.filter(titulo='Atividade em folga').exists())
 
-    def test_gerente_nao_cria_atividade_em_intervalo_com_folga_feriado_do_usuario(self):
+    def test_gerente_cria_atividade_em_intervalo_com_folga_feriado_do_usuario(self):
         FolgaFeriado.objects.create(user=self.user, criado_por=self.gp, data=date(2026, 6, 11), descricao='Folga usuario')
         self.client.force_login(self.gp)
 
@@ -2824,10 +2823,8 @@ class AgendaViewTests(TestCase):
             },
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertFalse(AgendaAtividade.objects.filter(titulo='Atividade delegada em folga').exists())
-        self.assertFormError(response.context['form'], 'data_inicio', 'Não é possível cadastrar atividade em data com folga/feriado.')
-
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(AgendaAtividade.objects.filter(titulo='Atividade delegada em folga').exists())
 
     def test_usuario_comum_ve_apenas_propria_agenda(self):
         self.criar_atividade(user=self.user, criado_por=self.user, titulo='Minha atividade')

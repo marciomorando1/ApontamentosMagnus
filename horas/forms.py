@@ -616,9 +616,6 @@ class AgendaAtividadeForm(forms.ModelForm):
             if not orcamento.codigo_cliente:
                 self.add_error('cliente', 'O orçamento selecionado não possui código do cliente.')
 
-        target_user = cleaned_data.get('user')
-        if not self.is_gp:
-            target_user = self.current_user
 
         destino_para = cleaned_data.get('destino_para') or AgendaAtividade.DESTINO_INTERNO
         quantidade_horas = cleaned_data.get('quantidade_horas')
@@ -637,24 +634,6 @@ class AgendaAtividadeForm(forms.ModelForm):
             if not quantidade_horas or quantidade_horas <= 0:
                 self.add_error('quantidade_horas', 'A quantidade de horas deve ser maior que zero.')
 
-        data_inicio = cleaned_data.get('data_inicio')
-        data_fim = cleaned_data.get('data_fim')
-        should_validate_folga = (
-            target_user
-            and data_inicio
-            and data_fim
-            and data_fim >= data_inicio
-            and (
-                not self.instance.pk
-                or {'user', 'data_inicio', 'data_fim'}.intersection(self.changed_data)
-            )
-        )
-        if should_validate_folga and FolgaFeriado.objects.filter(
-            Q(user=target_user) | Q(abrangencia_todos=True),
-            data__gte=data_inicio,
-            data__lte=data_fim,
-        ).exists():
-            self.add_error('data_inicio', 'Não é possível cadastrar atividade em data com folga/feriado.')
         return cleaned_data
 
 

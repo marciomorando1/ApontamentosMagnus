@@ -38,7 +38,7 @@
     .agenda-user-group + .agenda-user-group { margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--agenda-event-actions-border); }
     .agenda-user-group-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; font-weight: 600; color: var(--accent); }
     .agenda-user-group-count { color: var(--muted); font-family: var(--mono); font-size: 10px; font-weight: 400; }
-    .agenda-event { display: flex; flex-direction: column; border-radius: 8px; padding: 8px 10px; background: var(--agenda-event-bg); border: 1px solid var(--agenda-event-border); transition: transform 0.12s ease, border-color 0.12s ease, background 0.12s ease; }
+    .agenda-event { display: flex; flex-direction: column; border-radius: 8px; padding: 8px 10px; background: var(--agenda-event-bg); border: 1px solid var(--agenda-event-border); transition: transform 0.12s ease, border-color 0.12s ease, background 0.12s ease; cursor: pointer; }
     .agenda-event:hover { transform: translateY(-1px); border-color: var(--agenda-event-hover-border); background: var(--agenda-event-hover-bg); }
     .agenda-event.is-out-of-hours { background: var(--agenda-event-danger-bg); border-color: var(--agenda-event-danger-border); }
     .agenda-event.is-out-of-hours:hover { border-color: var(--agenda-event-danger-hover-border); background: var(--agenda-event-danger-hover-bg); }
@@ -47,9 +47,25 @@
     .agenda-event-title { font-size: 12px; font-weight: 600; color: var(--text); line-height: 1.25; }
     .agenda-event-subtitle { margin-top: 2px; font-size: 11px; color: var(--agenda-event-subtitle); }
     .agenda-event-meta { margin-top: 5px; display: flex; gap: 8px; flex-wrap: wrap; font-size: 10px; color: var(--agenda-event-muted); text-transform: uppercase; letter-spacing: 0.05em; }
-    .agenda-event-actions { position: static; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--agenda-event-actions-border); display: flex; gap: 6px; justify-content: flex-end; }
-    .agenda-edit-button { min-height: 26px; padding: 4px 10px; font-size: 10px; }
-    .agenda-point-button { position: static; width: auto; min-height: 26px; padding: 4px 10px; font-size: 10px; line-height: 1.2; }
+    .agenda-modal-backdrop { position: fixed; inset: 0; z-index: 60; display: none; align-items: center; justify-content: center; padding: 24px; background: rgba(0, 0, 0, 0.52); }
+    .agenda-modal-backdrop.is-open { display: flex; }
+    .agenda-modal { width: min(920px, 100%); max-height: min(86vh, 820px); overflow: auto; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: var(--popover-shadow); }
+    .agenda-modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 20px 22px 14px; border-bottom: 1px solid var(--border); }
+    .agenda-modal-title { margin: 0; font-size: 22px; font-weight: 600; color: var(--text); line-height: 1.2; }
+    .agenda-modal-subtitle { margin-top: 4px; color: var(--muted); font-size: 12px; }
+    .agenda-modal-close { min-width: 34px; min-height: 34px; padding: 0; border-radius: 8px; }
+    .agenda-modal-body { padding: 18px 22px 22px; }
+    .agenda-modal-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .agenda-modal-grid .field { margin-bottom: 0; }
+    .agenda-modal-grid .field.is-wide { grid-column: 1 / -1; }
+    .agenda-modal-value { min-height: 42px; padding: 11px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--input-bg); color: var(--text); font-size: 13px; line-height: 1.35; white-space: pre-wrap; }
+    .agenda-modal-value.is-muted { color: var(--muted); }
+    .agenda-modal-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
+    @media (max-width: 800px) {
+      .agenda-modal-backdrop { align-items: stretch; padding: 12px; }
+      .agenda-modal-grid { grid-template-columns: 1fr; }
+      .agenda-modal-header, .agenda-modal-body { padding-left: 16px; padding-right: 16px; }
+    }
     .agenda-empty-slot { padding-top: 4px; font-size: 11px; color: var(--muted); }
     .agenda-empty-state { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; }
     @media (max-width: 700px) {
@@ -194,6 +210,69 @@
     {% endif %}
   </section>
 
+  <div class="agenda-modal-backdrop" data-agenda-modal hidden>
+    <div class="agenda-modal" role="dialog" aria-modal="true" aria-labelledby="agenda-modal-title">
+      <div class="agenda-modal-header">
+        <div>
+          <h2 class="agenda-modal-title" id="agenda-modal-title" data-modal-field="title"></h2>
+          <div class="agenda-modal-subtitle" data-modal-field="client"></div>
+        </div>
+        <button class="btn btn-ghost agenda-modal-close" type="button" data-modal-close aria-label="Fechar">&times;</button>
+      </div>
+      <div class="agenda-modal-body">
+        <div class="agenda-modal-grid">
+          <div class="field">
+            <label>Usuario</label>
+            <div class="agenda-modal-value" data-modal-field="user"></div>
+          </div>
+          <div class="field">
+            <label>Numero do Orcamento</label>
+            <div class="agenda-modal-value" data-modal-field="budget"></div>
+          </div>
+          <div class="field">
+            <label>Numero do Chamado</label>
+            <div class="agenda-modal-value" data-modal-field="ticket"></div>
+          </div>
+          <div class="field">
+            <label>Cliente</label>
+            <div class="agenda-modal-value" data-modal-field="clientDetail"></div>
+          </div>
+          <div class="field">
+            <label>Servico</label>
+            <div class="agenda-modal-value" data-modal-field="service"></div>
+          </div>
+          <div class="field">
+            <label>Produto</label>
+            <div class="agenda-modal-value" data-modal-field="product"></div>
+          </div>
+          <div class="field">
+            <label>Data Inicio</label>
+            <div class="agenda-modal-value" data-modal-field="startDate"></div>
+          </div>
+          <div class="field">
+            <label>Horario</label>
+            <div class="agenda-modal-value" data-modal-field="time"></div>
+          </div>
+          <div class="field">
+            <label>Data Fim</label>
+            <div class="agenda-modal-value" data-modal-field="endDate"></div>
+          </div>
+          <div class="field">
+            <label>Total de Horas Maximo</label>
+            <div class="agenda-modal-value" data-modal-field="maxHours"></div>
+          </div>
+          <div class="field is-wide">
+            <label>Descricao</label>
+            <div class="agenda-modal-value" data-modal-field="description"></div>
+          </div>
+        </div>
+        <div class="agenda-modal-actions">
+          <a class="btn btn-ghost" href="#" data-modal-edit>Editar</a>
+          <a class="btn btn-primary" href="#" data-modal-point>Apontar</a>
+        </div>
+      </div>
+    </div>
+  </div>
   <script>
     document.addEventListener('DOMContentLoaded', function () {
       document.querySelectorAll('[data-user-picker]').forEach(function (picker) {
@@ -248,16 +327,100 @@
         syncPicker();
       });
 
+      var modal = document.querySelector('[data-agenda-modal]');
+      var modalClose = modal ? modal.querySelector('[data-modal-close]') : null;
+      var modalEdit = modal ? modal.querySelector('[data-modal-edit]') : null;
+      var modalPoint = modal ? modal.querySelector('[data-modal-point]') : null;
+      var modalFields = {};
+
+      if (modal) {
+        modal.querySelectorAll('[data-modal-field]').forEach(function (field) {
+          modalFields[field.getAttribute('data-modal-field')] = field;
+        });
+      }
+
+      function setModalText(name, value) {
+        if (!modalFields[name]) return;
+        var text = value || '-';
+        modalFields[name].textContent = text;
+        modalFields[name].classList.toggle('is-muted', text === '-');
+      }
+
+      function openActivityModal(card) {
+        if (!modal) return;
+        setModalText('title', card.dataset.title);
+        setModalText('client', card.dataset.client);
+        setModalText('clientDetail', card.dataset.client);
+        setModalText('time', card.dataset.time);
+        setModalText('user', card.dataset.user);
+        setModalText('budget', card.dataset.budget);
+        setModalText('ticket', card.dataset.ticket);
+        setModalText('service', card.dataset.service);
+        setModalText('product', card.dataset.product);
+        setModalText('startDate', card.dataset.startDate);
+        setModalText('endDate', card.dataset.endDate);
+        setModalText('maxHours', card.dataset.maxHours);
+        setModalText('description', card.dataset.description);
+
+        if (modalEdit) {
+          if (card.dataset.canManage === 'true' && card.dataset.editUrl) {
+            modalEdit.hidden = false;
+            modalEdit.href = card.dataset.editUrl;
+          } else {
+            modalEdit.hidden = true;
+            modalEdit.removeAttribute('href');
+          }
+        }
+        if (modalPoint) {
+          modalPoint.href = card.dataset.pointUrl || '#';
+        }
+
+        modal.hidden = false;
+        modal.classList.add('is-open');
+        if (modalClose) modalClose.focus();
+      }
+
+      function closeActivityModal() {
+        if (!modal) return;
+        modal.classList.remove('is-open');
+        modal.hidden = true;
+      }
+
+      document.querySelectorAll('[data-agenda-event]').forEach(function (card) {
+        card.addEventListener('click', function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          openActivityModal(card);
+        });
+        card.addEventListener('keydown', function (event) {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
+          event.stopPropagation();
+          openActivityModal(card);
+        });
+      });
+
+      if (modal) {
+        modal.addEventListener('click', function (event) {
+          if (event.target === modal) closeActivityModal();
+        });
+      }
+      if (modalClose) {
+        modalClose.addEventListener('click', closeActivityModal);
+      }
+      document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape' && modal && !modal.hidden) closeActivityModal();
+      });
+
       document.querySelectorAll('.agenda-day').forEach(function (el) {
         var href = el.getAttribute('data-href');
         if (!href) return;
         el.style.cursor = 'pointer';
         el.addEventListener('click', function (e) {
-          if (e.target.closest('a') || e.target.closest('button') || e.target.closest('input')) return;
+          if (e.target.closest('[data-agenda-event]') || e.target.closest('a') || e.target.closest('button') || e.target.closest('input')) return;
           window.location.href = href;
         });
       });
     });
   </script>
 {% endblock %}
-

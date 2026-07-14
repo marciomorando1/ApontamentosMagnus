@@ -75,7 +75,13 @@
               <td>{{ item.criado_por_nome }}</td>
               <td>
                 {% if item.criado_por_id == user.pk %}
-                  <a class="btn-inline" href="{% url 'horas:folga_feriado_editar' item.pk %}">Editar</a>
+                  <div class="orcamento-actions">
+                    <a class="btn-inline" href="{% url 'horas:folga_feriado_editar' item.pk %}">Editar</a>
+                    <form method="post" action="{% url 'horas:folga_feriado_remover' item.pk %}">
+                      {% csrf_token %}
+                      <button class="btn-del" type="submit">×</button>
+                    </form>
+                  </div>
                 {% else %}
                   <span class="muted-text">—</span>
                 {% endif %}

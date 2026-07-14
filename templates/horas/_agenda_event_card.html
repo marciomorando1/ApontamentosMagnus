@@ -1,35 +1,33 @@
-<div class="agenda-event{% if atividade.can_manage %} is-editable{% endif %}{% if atividade.orcamento.horas_disponiveis <= 0 %} is-out-of-hours{% endif %}">
-  {% if atividade.can_manage %}
-    <a class="agenda-event-title" href="{% url 'horas:agenda_editar' atividade.pk %}">{{ atividade.titulo }}</a>
-  {% else %}
-    <div class="agenda-event-title">{{ atividade.titulo }}</div>
-  {% endif %}
-  <div class="agenda-event-subtitle">
-    {% if atividade.orcamento.codigo_cliente %}{{ atividade.orcamento.codigo_cliente }}{% else %}{{ atividade.cliente }}{% endif %}{% if atividade.orcamento.nome_cliente %} - {{ atividade.orcamento.nome_cliente }}{% endif %}
+<div
+  class="agenda-event{% if atividade.can_manage %} is-editable{% endif %}{% if atividade.orcamento.horas_disponiveis <= 0 %} is-out-of-hours{% endif %}"
+  role="button"
+  tabindex="0"
+  data-agenda-event
+  data-title="{{ atividade.titulo }}"
+  data-client="{% if atividade.orcamento.codigo_cliente %}{{ atividade.orcamento.codigo_cliente }} - {{ atividade.orcamento.nome_cliente|default:'Sem Nome Cliente' }}{% else %}{{ atividade.cliente }}{% endif %}"
+  data-time="{% if atividade.hora_inicio and atividade.hora_fim %}{{ atividade.hora_inicio|time:'H:i' }} - {{ atividade.hora_fim|time:'H:i' }}{% elif atividade.quantidade_horas is not None %}Qtd. {{ atividade.quantidade_horas_formatada }}{% endif %}"
+  data-user="{{ atividade.user.username }}"
+  data-budget="{{ atividade.orcamento.codigo }}"
+  data-ticket="{{ atividade.numero_chamado }}"
+  data-service="{% if atividade.servico %}{{ atividade.servico.codigo }}{% endif %}"
+  data-product="{{ atividade.produto }}"
+  data-start-date="{{ atividade.data_inicio|date:'d/m/Y' }}"
+  data-end-date="{{ atividade.data_fim|date:'d/m/Y' }}"
+  data-max-hours="{{ atividade.total_horas_maximo_formatado }}"
+  data-description="{{ atividade.descricao }}"
+  data-can-manage="{% if atividade.can_manage %}true{% else %}false{% endif %}"
+  data-edit-url="{% if atividade.can_manage %}{% url 'horas:agenda_editar' atividade.pk %}{% endif %}"
+  data-point-url="{% url 'horas:timer' %}?data={{ day.date|date:'Y-m-d' }}&orcamento={{ atividade.orcamento_id }}{% if atividade.servico_id %}&servico={{ atividade.servico_id }}{% endif %}"
+  aria-label="Abrir atividade {{ atividade.titulo }}"
+>
+  <div class="agenda-event-title">
+    {% if atividade.orcamento.codigo_cliente %}{{ atividade.orcamento.codigo_cliente }} - {{ atividade.orcamento.nome_cliente|default:'Sem Nome Cliente' }}{% else %}{{ atividade.cliente }}{% endif %}
   </div>
   <div class="agenda-event-meta">
-    {% if atividade.numero_chamado %}<span>Chamado {{ atividade.numero_chamado }}</span>{% endif %}
-    <span>{{ atividade.orcamento.codigo }}</span>
-    {% if atividade.servico %}<span>{{ atividade.servico.codigo }}</span>{% endif %}
     {% if atividade.hora_inicio and atividade.hora_fim %}
       <span>{{ atividade.hora_inicio|time:'H:i' }} - {{ atividade.hora_fim|time:'H:i' }}</span>
+    {% elif atividade.quantidade_horas is not None %}
+      <span>Qtd. {{ atividade.quantidade_horas_formatada }}</span>
     {% endif %}
-    {% if atividade.total_horas_maximo is not None %}
-      <span>Máx. {{ atividade.total_horas_maximo_formatado }}</span>
-    {% endif %}
-    {% if atividade.orcamento.pmo_nome %}<span>PMO: {{ atividade.orcamento.pmo_nome }}</span>{% endif %}
-    <span>HRS APT: {{ atividade.orcamento.horas_apontadas_formatadas }}</span>
-  </div>
-  <div class="agenda-event-actions">
-    {% if atividade.can_manage %}
-      <a
-        class="btn-inline agenda-edit-button"
-        href="{% url 'horas:agenda_editar' atividade.pk %}"
-      >Editar</a>
-    {% endif %}
-    <a
-      class="btn btn-primary agenda-point-button"
-      href="{% url 'horas:timer' %}?data={{ day.date|date:'Y-m-d' }}&orcamento={{ atividade.orcamento_id }}{% if atividade.servico_id %}&servico={{ atividade.servico_id }}{% endif %}"
-    >Apontar</a>
   </div>
 </div>

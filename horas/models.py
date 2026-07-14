@@ -132,6 +132,7 @@ class UserProfile(models.Model):
         related_name='profile',
     )
     is_gerente_projetos = models.BooleanField(default=False)
+    is_administrador = models.BooleanField('Administrador', default=False)
     is_pmo = models.BooleanField(default=False)
     exportacsv = models.BooleanField('Exporta CSV', default=False)
     codigoerp = models.PositiveIntegerField('Código ERP', default=0)
@@ -144,6 +145,8 @@ class UserProfile(models.Model):
         roles = []
         if self.is_gerente_projetos:
             roles.append('GP')
+        if self.is_administrador:
+            roles.append('Administrador')
         if self.is_pmo:
             roles.append('PMO')
         role = ', '.join(roles) if roles else 'Usuario'
@@ -280,6 +283,13 @@ class EstimativaItem(models.Model):
 
 
 class AgendaAtividade(models.Model):
+    DESTINO_INTERNO = 'INTERNO'
+    DESTINO_TERCEIRO = 'TERCEIRO'
+    DESTINO_CHOICES = (
+        (DESTINO_INTERNO, 'Interno'),
+        (DESTINO_TERCEIRO, 'Terceiro'),
+    )
+
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -304,12 +314,19 @@ class AgendaAtividade(models.Model):
         null=True,
     )
     produto = models.CharField(max_length=200, blank=True)
+    destino_para = models.CharField(max_length=20, choices=DESTINO_CHOICES, default=DESTINO_INTERNO)
     titulo = models.CharField(max_length=200)
     descricao = models.TextField(blank=True)
     data_inicio = models.DateField()
     data_fim = models.DateField()
     hora_inicio = models.TimeField(null=True, blank=True)
     hora_fim = models.TimeField(null=True, blank=True)
+    quantidade_horas = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
     total_horas_maximo = models.DecimalField(
         max_digits=8,
         decimal_places=2,
@@ -321,6 +338,12 @@ class AgendaAtividade(models.Model):
 
     class Meta:
         ordering = ['data_inicio', 'hora_inicio', 'titulo', 'pk']
+
+    @property
+    def quantidade_horas_formatada(self):
+        if self.quantidade_horas is None:
+            return ''
+        return format_decimal_hours(self.quantidade_horas)
 
     @property
     def total_horas_maximo_formatado(self):

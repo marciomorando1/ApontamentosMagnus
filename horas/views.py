@@ -139,9 +139,14 @@ def _base_registros_queryset(user, *, include_all_users=False):
     return queryset.filter(user=user)
 
 
+def _user_is_admin(user):
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+    return profile.is_administrador
+
+
 def _user_is_gp(user):
     profile, _ = UserProfile.objects.get_or_create(user=user)
-    return profile.is_gerente_projetos
+    return profile.is_gerente_projetos or profile.is_administrador
 
 
 def _user_can_export_csv(user):
@@ -161,12 +166,16 @@ def _folga_feriado_manage_queryset(user):
     return _base_folga_feriado_queryset().filter(criado_por=user)
 
 def _agenda_manage_queryset(user):
+    if _user_is_admin(user):
+        return _base_agenda_queryset()
     if _user_is_gp(user):
         return _base_agenda_queryset().filter(Q(user=user) | Q(criado_por=user))
     return _base_agenda_queryset().filter(user=user, criado_por=user)
 
 
 def _can_manage_agenda_activity(user, atividade):
+    if _user_is_admin(user):
+        return True
     if _user_is_gp(user):
         return atividade.user_id == user.pk or atividade.criado_por_id == user.pk
     return atividade.user_id == user.pk and atividade.criado_por_id == user.pk
@@ -852,6 +861,7 @@ class SidebarContextMixin:
         context['sidebar_total_today'] = self.get_sidebar_total_today()
         context['orcamentos_ativos'] = Orcamento.objects.filter(ativo=True).order_by('codigo')
         context['is_gp'] = _user_is_gp(self.request.user)
+        context['is_admin'] = _user_is_admin(self.request.user)
         context['pendencias_aprovacao_count'] = 0
         if context['is_gp']:
             context['pendencias_aprovacao_count'] = SolicitacaoHoras.objects.filter(
@@ -1115,6 +1125,18 @@ class FolgaFeriadoUpdateView(FolgasFeriadosView):
 
         messages.error(request, 'Corrija os campos destacados antes de salvar a folga/feriado.')
         return self.render_to_response(self.get_context_data(form=form))
+
+@method_decorator(login_required(login_url='login'), name='dispatch')
+class FolgaFeriadoDeleteView(View):
+    def post(self, request, pk):
+        folga = get_object_or_404(_base_folga_feriado_queryset(), pk=pk)
+        if folga.criado_por_id != request.user.pk:
+            messages.error(request, 'Só é possível excluir registros criados pelo próprio usuário.')
+            return redirect('horas:folgas_feriados')
+
+        folga.delete()
+        messages.success(request, 'Folga/feriado removido com sucesso.')
+        return redirect('horas:folgas_feriados')
 
 class TimerView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
     template_name = 'horas/timer.html'
@@ -1536,11 +1558,22 @@ class OrcamentosView(
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        filtro_codigo = self.request.GET.get('codigo', '').strip()
+        filtro_descricao = self.request.GET.get('descricao', '').strip()
+        orcamentos = Orcamento.objects.select_related('responsavel', 'pmo').order_by('codigo')
+        if filtro_codigo:
+            orcamentos = orcamentos.filter(codigo__icontains=filtro_codigo)
+        if filtro_descricao:
+            orcamentos = orcamentos.filter(nome__icontains=filtro_descricao)
         context['section'] = 'orcamentos'
         context['form'] = kwargs.get('form') or OrcamentoForm()
         context['import_form'] = kwargs.get('import_form') or OrcamentoImportForm()
         context['import_errors'] = kwargs.get('import_errors') or []
-        context['orcamentos'] = Orcamento.objects.select_related('responsavel', 'pmo').order_by('codigo')
+        context['orcamentos'] = orcamentos
+        context['filtros_orcamentos'] = {
+            'codigo': filtro_codigo,
+            'descricao': filtro_descricao,
+        }
         return context
 
     def post(self, request, *args, **kwargs):
@@ -1558,13 +1591,13 @@ class OrcamentosView(
                         orcamento.responsavel = request.user
                     with transaction.atomic():
                         Orcamento.objects.bulk_create(orcamentos)
-                    messages.success(request, f'{len(orcamentos)} orÃ§amento(s) importado(s) com sucesso.')
+                    messages.success(request, f'{len(orcamentos)} orçamento(s) importado(s) com sucesso.')
                     return redirect('horas:orcamentos')
-                messages.error(request, 'A planilha possui erros e nenhum orÃ§amento foi importado.')
+                messages.error(request, 'A planilha possui erros e nenhum orçamento foi importado.')
                 return self.render_to_response(
                     self.get_context_data(import_form=import_form, import_errors=import_errors)
                 )
-            messages.error(request, 'Selecione uma planilha XLSX vÃ¡lida.')
+            messages.error(request, 'Selecione uma planilha XLSX válida.')
             return self.render_to_response(self.get_context_data(import_form=import_form))
 
         form = OrcamentoForm(request.POST)
@@ -1572,10 +1605,10 @@ class OrcamentosView(
             orcamento = form.save(commit=False)
             orcamento.responsavel = request.user
             orcamento.save()
-            messages.success(request, 'OrÃ§amento adicionado com sucesso.')
+            messages.success(request, 'Orçamento adicionado com sucesso.')
             return redirect('horas:orcamentos')
 
-        messages.error(request, 'Corrija os campos destacados antes de adicionar o orÃ§amento.')
+        messages.error(request, 'Corrija os campos destacados antes de adicionar o orçamento.')
         return self.render_to_response(self.get_context_data(form=form))
 
 
@@ -1588,11 +1621,10 @@ class OrcamentoUpdateView(
     template_name = 'horas/orcamento_form.html'
 
     def dispatch(self, request, *args, **kwargs):
-        self.orcamento = get_object_or_404(
-            Orcamento.objects.select_related('responsavel', 'pmo'),
-            pk=kwargs['pk'],
-            responsavel=request.user,
-        )
+        queryset = Orcamento.objects.select_related('responsavel', 'pmo')
+        if not _user_is_admin(request.user):
+            queryset = queryset.filter(responsavel=request.user)
+        self.orcamento = get_object_or_404(queryset, pk=kwargs['pk'])
         return super().dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
@@ -1606,10 +1638,10 @@ class OrcamentoUpdateView(
         form = OrcamentoForm(request.POST, instance=self.orcamento)
         if form.is_valid():
             form.save()
-            messages.success(request, 'OrÃ§amento atualizado com sucesso.')
+            messages.success(request, 'Orçamento atualizado com sucesso.')
             return redirect('horas:orcamentos')
 
-        messages.error(request, 'Corrija os campos destacados antes de salvar o orÃ§amento.')
+        messages.error(request, 'Corrija os campos destacados antes de salvar o orçamento.')
         return self.render_to_response(self.get_context_data(form=form))
 
 
@@ -1657,7 +1689,10 @@ class ServicosView(GerenteProjetosRequiredMixin, AuthenticatedViewMixin, Sidebar
 
 class OrcamentoDeleteView(GerenteProjetosRequiredMixin, AuthenticatedViewMixin, View):
     def post(self, request, pk):
-        orcamento = get_object_or_404(Orcamento, pk=pk, responsavel=request.user)
+        queryset = Orcamento.objects.all()
+        if not _user_is_admin(request.user):
+            queryset = queryset.filter(responsavel=request.user)
+        orcamento = get_object_or_404(queryset, pk=pk)
         try:
             orcamento.delete()
             messages.success(request, 'OrÃ§amento removido.')

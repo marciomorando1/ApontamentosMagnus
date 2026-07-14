@@ -92,7 +92,22 @@
     <button class="btn btn-primary btn-sm" type="submit">Importar orçamentos</button>
   </form>
 
-  <div class="table-wrap orcamentos-table-wrap">
+  <form method="get" action="{% url 'horas:orcamentos' %}#orcamentos-grid" class="filter-row orcamentos-filter-row">
+    <div class="field">
+      <label for="fil-orcamento-codigo">Código do Orçamento</label>
+      <input id="fil-orcamento-codigo" name="codigo" type="text" value="{{ filtros_orcamentos.codigo }}" inputmode="numeric" pattern="\d*">
+    </div>
+    <div class="field">
+      <label for="fil-orcamento-descricao">Descrição do Orçamento</label>
+      <input id="fil-orcamento-descricao" name="descricao" type="text" value="{{ filtros_orcamentos.descricao }}">
+    </div>
+    <button class="btn btn-primary btn-sm" type="submit">Buscar</button>
+    {% if filtros_orcamentos.codigo or filtros_orcamentos.descricao %}
+      <a class="btn btn-ghost btn-sm" href="{% url 'horas:orcamentos' %}#orcamentos-grid">Limpar</a>
+    {% endif %}
+  </form>
+
+  <div id="orcamentos-grid" class="table-wrap orcamentos-table-wrap">
     <table class="orcamentos-table">
       <colgroup>
         <col class="col-orcamento">
@@ -149,7 +164,7 @@
             </td>
             <td>
               <div class="orcamento-actions">
-                {% if orcamento.responsavel_id == request.user.id %}
+                {% if is_admin or orcamento.responsavel_id == request.user.id %}
                   <a class="btn-inline" href="{% url 'horas:orcamento_editar' orcamento.pk %}">Editar</a>
                   <form method="post" action="{% url 'horas:orcamento_remover' orcamento.pk %}">
                     {% csrf_token %}
@@ -161,7 +176,7 @@
           </tr>
         {% empty %}
           <tr>
-            <td colspan="13"><div class="empty-inline">Nenhum orçamento cadastrado.</div></td>
+            <td colspan="13"><div class="empty-inline">{% if filtros_orcamentos.codigo or filtros_orcamentos.descricao %}Nenhum orçamento encontrado.{% else %}Nenhum orçamento cadastrado.{% endif %}</div></td>
           </tr>
         {% endfor %}
       </tbody>

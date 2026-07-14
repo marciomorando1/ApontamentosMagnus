@@ -458,7 +458,7 @@ class FolgaFeriadoForm(forms.ModelForm):
         self.is_gp = bool(
             current_user
             and hasattr(current_user, 'profile')
-            and current_user.profile.is_gerente_projetos
+            and (current_user.profile.is_gerente_projetos or current_user.profile.is_administrador)
         )
         self.fields['user'].queryset = User.objects.order_by('username')
         self.fields['user'].label = 'Usuário'
@@ -502,6 +502,11 @@ class AgendaAtividadeForm(forms.ModelForm):
         choices=AGENDA_PRODUTO_CHOICES,
         required=True,
     )
+    quantidade_horas = DurationField(
+        label='Quantidade de Horas',
+        required=False,
+        compact_digits=True,
+    )
     total_horas_maximo = DurationField(
         label='Total de Horas Máximo',
         required=True,
@@ -517,12 +522,14 @@ class AgendaAtividadeForm(forms.ModelForm):
             'orcamento',
             'servico',
             'produto',
+            'destino_para',
             'titulo',
             'descricao',
             'data_inicio',
             'hora_inicio',
             'data_fim',
             'hora_fim',
+            'quantidade_horas',
             'total_horas_maximo',
         ]
         widgets = {
@@ -537,8 +544,11 @@ class AgendaAtividadeForm(forms.ModelForm):
     def __init__(self, *args, current_user=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.current_user = current_user
-        self.fields['hora_inicio'].required = True
-        self.fields['hora_fim'].required = True
+        self.fields['destino_para'].label = 'Atividade para'
+        self.fields['destino_para'].required = False
+        self.fields['destino_para'].initial = AgendaAtividade.DESTINO_INTERNO
+        self.fields['hora_inicio'].required = False
+        self.fields['hora_fim'].required = False
         if not self.instance.pk:
             self.fields['cliente'].required = False
             self.fields['cliente'].widget.attrs['readonly'] = 'readonly'
@@ -562,7 +572,7 @@ class AgendaAtividadeForm(forms.ModelForm):
         is_gp = bool(
             current_user
             and hasattr(current_user, 'profile')
-            and current_user.profile.is_gerente_projetos
+            and (current_user.profile.is_gerente_projetos or current_user.profile.is_administrador)
         )
         self.is_gp = is_gp
         self.fields['user'].queryset = User.objects.order_by('username')
@@ -609,6 +619,23 @@ class AgendaAtividadeForm(forms.ModelForm):
         target_user = cleaned_data.get('user')
         if not self.is_gp:
             target_user = self.current_user
+
+        destino_para = cleaned_data.get('destino_para') or AgendaAtividade.DESTINO_INTERNO
+        quantidade_horas = cleaned_data.get('quantidade_horas')
+        hora_inicio = cleaned_data.get('hora_inicio')
+        hora_fim = cleaned_data.get('hora_fim')
+
+        if destino_para == AgendaAtividade.DESTINO_INTERNO:
+            cleaned_data['quantidade_horas'] = None
+            if not hora_inicio:
+                self.add_error('hora_inicio', 'Este campo é obrigatório.')
+            if not hora_fim:
+                self.add_error('hora_fim', 'Este campo é obrigatório.')
+        elif destino_para == AgendaAtividade.DESTINO_TERCEIRO:
+            cleaned_data['hora_inicio'] = None
+            cleaned_data['hora_fim'] = None
+            if not quantidade_horas or quantidade_horas <= 0:
+                self.add_error('quantidade_horas', 'A quantidade de horas deve ser maior que zero.')
 
         data_inicio = cleaned_data.get('data_inicio')
         data_fim = cleaned_data.get('data_fim')

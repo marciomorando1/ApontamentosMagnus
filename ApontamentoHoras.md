@@ -1,5 +1,13 @@
 # Plano de Aplicativo - Controle de Apontamento de Horas
 
+## Regra de branch antes de commits
+
+Antes de criar commits, fazer push ou iniciar qualquer deploy, confirme explicitamente qual branch deve receber as alteracoes.
+
+- Use `main` somente quando o deploy Docker/servidor for o destino combinado.
+- Use `railway-pre-docker` somente quando a Railway precisar da versao anterior ao Docker.
+- Se a branch nao estiver clara, pare e pergunte antes de executar `git commit`, `git push`, `railway up` ou qualquer workflow de deploy.
+
 ## Visão Geral
 Aplicativo web para controle de apontamento de horas desenvolvido em Django com banco de dados SQLite. Interface idêntica ao arquivo `apontamento-horas.html` existente.
 

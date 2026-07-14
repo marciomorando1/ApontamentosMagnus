@@ -12,6 +12,7 @@ urlpatterns = [
     path('agenda/<int:pk>/remover/', views.AgendaDeleteView.as_view(), name='agenda_remover'),
     path('folgas-feriados/', views.FolgasFeriadosView.as_view(), name='folgas_feriados'),
     path('folgas-feriados/<int:pk>/editar/', views.FolgaFeriadoUpdateView.as_view(), name='folga_feriado_editar'),
+    path('folgas-feriados/<int:pk>/remover/', views.FolgaFeriadoDeleteView.as_view(), name='folga_feriado_remover'),
     path('timer/', views.TimerView.as_view(), name='timer'),
     path('registros/', views.RegistrosView.as_view(), name='registros'),
     path('registros/exportar/', views.exportar_registros_csv, name='exportar_csv'),

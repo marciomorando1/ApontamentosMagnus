@@ -209,9 +209,34 @@ nav { padding: 12px 0; flex: 1; }
 .form-row.quad { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .agenda-schedule-row {
   display: grid;
-  grid-template-columns: 150px 110px 150px 110px 180px;
+  grid-template-columns: minmax(180px, 1fr) minmax(110px, 0.7fr) minmax(180px, 1fr) minmax(110px, 0.7fr) minmax(220px, 1.2fr);
+  align-items: end;
   gap: 14px;
   margin-bottom: 14px;
+}
+.agenda-schedule-row.is-third-party {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.agenda-schedule-row.is-third-party .field {
+  flex: 0 1 190px;
+}
+.agenda-schedule-row.is-third-party .agenda-date-field {
+  flex-basis: 205px;
+}
+.agenda-schedule-row.is-third-party .agenda-end-date-field {
+  flex: 0 0 205px;
+}
+.agenda-schedule-row.is-third-party .agenda-hours-field,
+.agenda-schedule-row.is-third-party .agenda-total-hours-field {
+  flex-basis: 230px;
+}
+.agenda-schedule-row input[type="date"] {
+  min-width: 180px;
+}
+.agenda-schedule-row .field label {
+  white-space: nowrap;
 }
 .field label {
   display: block;
@@ -897,7 +922,7 @@ tr.processed-row .desc {
   .theme-toggle [data-theme-toggle-label] { display: none; }
   .sidebar-footer { display: none; }
   .page { padding: 20px 18px; }
-  .form-row, .form-row.triple, .form-row.quad, .agenda-schedule-row { grid-template-columns: 1fr; }
+  .form-row, .form-row.triple, .form-row.quad, .agenda-schedule-row, .agenda-schedule-row.is-third-party { grid-template-columns: 1fr; }
   .estimate-line,
   .estimate-line-main,
   .estimate-line-hours { grid-template-columns: 1fr; }

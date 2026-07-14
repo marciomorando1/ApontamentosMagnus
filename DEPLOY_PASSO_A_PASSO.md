@@ -1,5 +1,13 @@
 # Deploy da aplicacao Magnus Rotinas
 
+## Regra de branch antes de commits
+
+Antes de criar commits, fazer push ou iniciar qualquer deploy, confirme explicitamente qual branch deve receber as alteracoes.
+
+- Use `main` somente quando o deploy Docker/servidor for o destino combinado.
+- Use `railway-pre-docker` somente quando a Railway precisar da versao anterior ao Docker.
+- Se a branch nao estiver clara, pare e pergunte antes de executar `git commit`, `git push`, `railway up` ou qualquer workflow de deploy.
+
 Este documento descreve o processo completo para publicar a aplicacao Django `ApontamentosMagnus` no servidor Docker da Senior Curitiba.
 
 ## 1. Visao geral
@@ -67,9 +75,9 @@ output/
 .env.production
 ```
 
-## 4. Commitar na branch main
+## 4. Commitar na branch confirmada
 
-Na maquina local, dentro do projeto:
+Na maquina local, dentro do projeto, confirme primeiro a branch de destino com o responsavel. Nao presuma `main` ou `railway-pre-docker`.
 
 ```bash
 git status
@@ -87,22 +95,22 @@ Crie o commit:
 git commit -m "Mensagem clara do ajuste"
 ```
 
-Troque para a branch `main`, se ainda nao estiver nela:
+Troque para a branch confirmada, se ainda nao estiver nela:
 
 ```bash
-git checkout main
+git checkout nome-da-branch-confirmada
 ```
 
-Se o trabalho foi feito em outra branch, traga para a `main`:
+Se o trabalho foi feito em outra branch, traga para a branch confirmada somente depois de autorizacao:
 
 ```bash
-git merge --ff-only nome-da-branch
+git merge --ff-only nome-da-branch-de-trabalho
 ```
 
 Envie para o GitHub:
 
 ```bash
-git push origin main
+git push origin nome-da-branch-confirmada
 ```
 
 ## 5. Conectar no servidor

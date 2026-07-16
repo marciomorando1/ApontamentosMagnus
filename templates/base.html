@@ -56,6 +56,9 @@
               <span class="nav-pending-badge" title="{{ pendencias_aprovacao_count }} pendência{{ pendencias_aprovacao_count|pluralize }} aguardando aprovação">{{ pendencias_aprovacao_count }}</span>
             {% endif %}
           </a>
+          <a class="nav-item {% if section == 'clientes' %}active{% endif %}" href="{% url 'horas:clientes' %}">
+            <span class="nav-icon">C</span> Clientes
+          </a>
           <a class="nav-item {% if section == 'orcamentos' %}active{% endif %}" href="{% url 'horas:orcamentos' %}">
             <span class="nav-icon">🗂</span> Orçamentos
           </a>

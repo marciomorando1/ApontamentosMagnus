@@ -36,6 +36,8 @@ urlpatterns = [
         views.SolicitacaoHorasDecisaoView.as_view(),
         name='solicitacao_horas_decidir',
     ),
+    path('clientes/', views.ClientesView.as_view(), name='clientes'),
+    path('clientes/<int:pk>/editar/', views.ClienteUpdateView.as_view(), name='cliente_editar'),
     path('orcamentos/', views.OrcamentosView.as_view(), name='orcamentos'),
     path('orcamentos/<int:pk>/editar/', views.OrcamentoUpdateView.as_view(), name='orcamento_editar'),
     path('orcamentos/<int:pk>/remover/', views.OrcamentoDeleteView.as_view(), name='orcamento_remover'),

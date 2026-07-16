@@ -4,7 +4,7 @@ from django.contrib.auth.forms import AdminUserCreationForm
 from django.contrib import admin
 from django import forms
 
-from .models import AgendaAtividade, Fase, FolgaFeriado, Orcamento, Registro, Servico, SolicitacaoHoras, UserProfile
+from .models import AgendaAtividade, Cliente, Fase, FolgaFeriado, Orcamento, Registro, Servico, SolicitacaoHoras, UserProfile
 
 
 User = get_user_model()
@@ -65,6 +65,21 @@ class FaseAdmin(admin.ModelAdmin):
 class ServicoAdmin(admin.ModelAdmin):
     list_display = ('codigo', 'descricao', 'criado_em')
     search_fields = ('codigo', 'descricao')
+
+
+
+@admin.register(Cliente)
+class ClienteAdmin(admin.ModelAdmin):
+    list_display = ('Codigo_Cliente', 'Nome_Cliente', 'Situacao', 'Data_Cadastro', 'Data_Alteracao', 'Usuario_Alteracao')
+    search_fields = ('Codigo_Cliente', 'Nome_Cliente')
+    list_filter = ('Situacao',)
+    readonly_fields = ('Data_Cadastro', 'Data_Alteracao')
+
+    def save_model(self, request, obj, form, change):
+        obj.Usuario_Alteracao = request.user
+        if not change:
+            obj.Situacao = Cliente.SITUACAO_ATIVO
+        super().save_model(request, obj, form, change)
 
 
 @admin.register(Orcamento)

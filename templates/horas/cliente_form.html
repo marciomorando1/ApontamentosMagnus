@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+
+{% block title %}Editar Cliente | Apontamento de Horas{% endblock %}
+
+{% block content %}
+  <div class="page-title">Editar cliente</div>
+
+  <form method="post" class="add-orc-card">
+    {% csrf_token %}
+    <div class="form-row">
+      <div class="field">
+        <label>C&oacute;digo do Cliente</label>
+        <input type="text" value="{{ cliente.Codigo_Cliente }}" readonly class="mono-accent">
+      </div>
+      <div class="field">
+        <label for="{{ form.Nome_Cliente.id_for_label }}">Nome do Cliente</label>
+        {{ form.Nome_Cliente }}
+        {% for error in form.Nome_Cliente.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
+        <label for="{{ form.Situacao.id_for_label }}">Situa&ccedil;&atilde;o</label>
+        {{ form.Situacao }}
+        {% for error in form.Situacao.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary btn-sm" type="submit">Salvar</button>
+      <a class="btn btn-ghost btn-sm" href="{% url 'horas:clientes' %}">Cancelar</a>
+    </div>
+  </form>
+{% endblock %}

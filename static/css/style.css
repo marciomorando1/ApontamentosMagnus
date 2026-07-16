@@ -360,6 +360,13 @@ table { width: 100%; border-collapse: collapse; }
   padding: 3px 6px;
   font-size: 9px;
 }
+
+.cliente-acoes-col {
+  text-align: center;
+}
+.cliente-actions {
+  justify-content: center;
+}
 @media (max-width: 1100px) {
   .orcamentos-table thead,
   .orcamentos-table colgroup { display: none; }

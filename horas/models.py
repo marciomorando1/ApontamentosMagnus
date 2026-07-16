@@ -44,6 +44,34 @@ class Servico(models.Model):
         return f'{self.codigo} - {self.descricao}'
 
 
+
+class Cliente(models.Model):
+    SITUACAO_ATIVO = 'ATIVO'
+    SITUACAO_INATIVO = 'INATIVO'
+    SITUACAO_CHOICES = [
+        (SITUACAO_ATIVO, 'Ativo'),
+        (SITUACAO_INATIVO, 'Inativo'),
+    ]
+
+    Codigo_Cliente = models.CharField(max_length=50, unique=True, validators=[somente_numeros_validator])
+    Nome_Cliente = models.CharField(max_length=200)
+    Situacao = models.CharField(max_length=10, choices=SITUACAO_CHOICES, default=SITUACAO_ATIVO)
+    Data_Cadastro = models.DateTimeField(auto_now_add=True)
+    Data_Alteracao = models.DateTimeField(auto_now=True)
+    Usuario_Alteracao = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='clientes_alterados',
+        null=True,
+        blank=True,
+    )
+
+    class Meta:
+        ordering = ['Codigo_Cliente']
+
+    def __str__(self):
+        return f'{self.Codigo_Cliente} - {self.Nome_Cliente}'
+
 class Orcamento(models.Model):
     responsavel = models.ForeignKey(
         settings.AUTH_USER_MODEL,

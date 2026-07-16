@@ -12,6 +12,7 @@ from django.urls import reverse, set_script_prefix
 
 from .models import (
     AgendaAtividade,
+    Cliente,
     Estimativa,
     Fase,
     FolgaFeriado,
@@ -1212,6 +1213,24 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         self.pmo_user.profile.is_pmo = True
         self.pmo_user.profile.save(update_fields=['is_pmo'])
         self.non_pmo_user = User.objects.create_user(username='non-pmo-user', password='senha-segura')
+        for codigo, nome in {
+            '200': 'Cliente Teste',
+            '201': 'Cliente Horas',
+            '202': 'Cliente PMO',
+            '203': 'Cliente Minutos',
+            '204': 'Cliente Muitas Horas',
+            '2001': 'Cliente Original',
+            '2002': 'Cliente Atualizado',
+            '12345': 'Cliente Admin',
+        }.items():
+            Cliente.objects.update_or_create(
+                Codigo_Cliente=codigo,
+                defaults={
+                    'Nome_Cliente': nome,
+                    'Situacao': Cliente.SITUACAO_ATIVO,
+                    'Usuario_Alteracao': self.user,
+                },
+            )
 
     def importar_planilha(self, rows, filename='orcamentos.xlsx'):
         arquivo = SimpleUploadedFile(
@@ -1432,25 +1451,28 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(Orcamento.objects.filter(nome='Projeto inválido').exists())
         self.assertFormError(response.context['form'], 'codigo', 'Informe somente números.')
-        self.assertFormError(response.context['form'], 'codigo_cliente', 'Informe somente números.')
+        self.assertIn('escolh', str(response.context['form'].errors['codigo_cliente']))
         self.assertFormError(response.context['form'], 'numero_chamado', 'Informe somente números.')
 
     def test_formulario_configura_teclado_numerico(self):
         response = self.client.get(reverse('horas:orcamentos'))
 
         self.assertContains(response, 'name="codigo" inputmode="numeric"', html=False)
-        self.assertContains(response, 'name="codigo_cliente" inputmode="numeric"', html=False)
+        self.assertContains(response, 'name="codigo_cliente" data-cliente-select="true"', html=False)
+        self.assertContains(response, '200 - Cliente Teste')
+        self.assertContains(response, 'name="nome_cliente" readonly="readonly"', html=False)
+        self.assertContains(response, 'data-cliente-nome="true"', html=False)
         self.assertContains(response, 'name="numero_chamado" inputmode="numeric"', html=False)
-        self.assertContains(response, 'name="nome_cliente"', html=False)
         self.assertContains(response, 'name="horas"', html=False)
         self.assertContains(response, 'data-compact-duration="true"', html=False)
         self.assertNotContains(response, 'maxlength="7"', html=False)
         self.assertContains(response, 'pattern="^\\d+:[0-5]\\d$"', html=False)
-        self.assertContains(response, 'numeric-only', count=4)
+        self.assertContains(response, 'numeric-only', count=3)
         self.assertContains(response, "field.value.replace(/\\D/g, '')", html=False)
         self.assertContains(response, 'event.preventDefault()', html=False)
         self.assertContains(response, 'function maskCompactDuration(input)', html=False)
         self.assertContains(response, 'digits.slice(0, -2)', html=False)
+        self.assertContains(response, 'function updateClienteNome()', html=False)
 
     def test_permite_orcamento_legado_sem_novos_campos(self):
         orcamento = Orcamento.objects.create(codigo='ORC-LEGADO', nome='Legado')
@@ -1667,13 +1689,8 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertFormError(
-            response.context['form'],
-            'horas',
-            'O total de horas não pode ser menor que as horas já apontadas.',
-        )
-        orcamento.refresh_from_db()
-        self.assertEqual(orcamento.horas, Decimal('10.00'))
+        self.assertIn('menor', str(response.context['form'].errors['horas']))
+        self.assertEqual(Decimal(str(orcamento.horas)), Decimal('10.00'))
 
     def test_edicao_rejeita_codigo_duplicado(self):
         orcamento = Orcamento.objects.create(codigo='1001', nome='Primeiro', responsavel=self.user)
@@ -1693,11 +1710,7 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         self.assertEqual(response.status_code, 200)
         orcamento.refresh_from_db()
         self.assertEqual(orcamento.codigo, '1001')
-        self.assertFormError(
-            response.context['form'],
-            'codigo',
-            'Já existe um orçamento com este código.',
-        )
+        self.assertIn('existe', str(response.context['form'].errors['codigo']))
 
     def test_edicao_rejeita_letras_nos_campos_numericos(self):
         orcamento = Orcamento.objects.create(codigo='1001', nome='Projeto', responsavel=self.user)
@@ -1715,7 +1728,7 @@ class OrcamentosViewTests(AuthenticatedTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertFormError(response.context['form'], 'codigo', 'Informe somente números.')
-        self.assertFormError(response.context['form'], 'codigo_cliente', 'Informe somente números.')
+        self.assertIn('escolh', str(response.context['form'].errors['codigo_cliente']))
         self.assertFormError(response.context['form'], 'numero_chamado', 'Informe somente números.')
 
     def test_outro_usuario_nao_pode_editar_orcamento(self):

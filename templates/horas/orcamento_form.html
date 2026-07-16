@@ -81,6 +81,22 @@
 
 {% block scripts %}
   <script>
+    const clienteSelect = document.querySelector('[data-cliente-select="true"]');
+    const clienteNomeField = document.querySelector('[data-cliente-nome="true"]');
+
+    function updateClienteNome() {
+      if (!clienteSelect || !clienteNomeField) return;
+      const selectedOption = clienteSelect.options[clienteSelect.selectedIndex];
+      const label = selectedOption ? selectedOption.textContent : '';
+      const separatorIndex = label.indexOf(' - ');
+      clienteNomeField.value = separatorIndex >= 0 ? label.slice(separatorIndex + 3) : '';
+    }
+
+    if (clienteSelect) {
+      clienteSelect.addEventListener('change', updateClienteNome);
+      updateClienteNome();
+    }
+
     document.querySelectorAll('.numeric-only').forEach((field) => {
       field.addEventListener('keydown', (event) => {
         if (

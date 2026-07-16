@@ -9,6 +9,7 @@ from django.db.models import Q
 
 from .models import (
     AgendaAtividade,
+    Cliente,
     Estimativa,
     EstimativaItem,
     Fase,
@@ -219,41 +220,130 @@ class RegistroForm(forms.ModelForm):
         self.fields['servico'].empty_label = '— selecione —'
 
 
+
+class ClienteForm(forms.ModelForm):
+    class Meta:
+        model = Cliente
+        fields = ['Codigo_Cliente', 'Nome_Cliente']
+        error_messages = {
+            'Codigo_Cliente': {
+                'unique': 'Ja existe um cliente com este codigo.',
+            },
+        }
+        widgets = {
+            'Codigo_Cliente': forms.TextInput(attrs={'inputmode': 'numeric', 'pattern': r'\d*', 'class': 'numeric-only'}),
+        }
+
+    def clean_Codigo_Cliente(self):
+        return self.cleaned_data['Codigo_Cliente'].strip()
+
+    def clean_Nome_Cliente(self):
+        return self.cleaned_data['Nome_Cliente'].strip()
+
+    def save(self, commit=True, user=None):
+        cliente = super().save(commit=False)
+        cliente.Situacao = Cliente.SITUACAO_ATIVO
+        if user is not None:
+            cliente.Usuario_Alteracao = user
+        if commit:
+            cliente.save()
+        return cliente
+
+
+class ClienteEditForm(forms.ModelForm):
+    class Meta:
+        model = Cliente
+        fields = ['Nome_Cliente', 'Situacao']
+
+    def clean_Nome_Cliente(self):
+        return self.cleaned_data['Nome_Cliente'].strip()
+
+    def save(self, commit=True, user=None):
+        cliente = super().save(commit=False)
+        if user is not None:
+            cliente.Usuario_Alteracao = user
+        if commit:
+            cliente.save()
+        return cliente
+
+
+class ClienteImportForm(forms.Form):
+    arquivo = forms.FileField(
+        label='Planilha Excel',
+        widget=forms.FileInput(attrs={'accept': '.xlsx'}),
+    )
+
+    def clean_arquivo(self):
+        arquivo = self.cleaned_data['arquivo']
+        if not arquivo.name.lower().endswith('.xlsx'):
+            raise forms.ValidationError('Selecione uma planilha no formato XLSX.')
+        return arquivo
+
+
 class OrcamentoForm(forms.ModelForm):
     horas = DurationField(
         label='Quantidade de horas',
         required=True,
         compact_digits=True,
     )
+    codigo_cliente = forms.ChoiceField(label='Codigo do Cliente')
 
     class Meta:
         model = Orcamento
         fields = ['codigo', 'codigo_cliente', 'nome_cliente', 'numero_chamado', 'nome', 'horas', 'pmo']
         error_messages = {
             'codigo': {
-                'unique': 'Já existe um orçamento com este código.',
+                'unique': 'J?? existe um or??amento com este c??digo.',
             },
         }
         widgets = {
             'codigo': forms.TextInput(attrs={'inputmode': 'numeric', 'pattern': r'\d*', 'class': 'numeric-only'}),
-            'codigo_cliente': forms.TextInput(attrs={'inputmode': 'numeric', 'pattern': r'\d*', 'class': 'numeric-only'}),
+            'nome_cliente': forms.TextInput(attrs={'readonly': 'readonly', 'class': 'cliente-nome-readonly'}),
             'numero_chamado': forms.TextInput(attrs={'inputmode': 'numeric', 'pattern': r'\d*', 'class': 'numeric-only'}),
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.selected_cliente = None
+        clientes = list(Cliente.objects.filter(Situacao=Cliente.SITUACAO_ATIVO).order_by('Codigo_Cliente'))
+        current_codigo = self.instance.codigo_cliente if self.instance.pk else ''
+        current_cliente = None
+        if current_codigo and all(cliente.Codigo_Cliente != current_codigo for cliente in clientes):
+            current_cliente = Cliente.objects.filter(Codigo_Cliente=current_codigo).first()
+            if current_cliente:
+                clientes.append(current_cliente)
+        self.clientes_por_codigo = {cliente.Codigo_Cliente: cliente for cliente in clientes}
+        self.fields['codigo_cliente'].choices = [
+            ('', 'Selecione um cliente'),
+            *[
+                (cliente.Codigo_Cliente, f'{cliente.Codigo_Cliente} - {cliente.Nome_Cliente}')
+                for cliente in clientes
+            ],
+        ]
+        self.fields['codigo_cliente'].widget.attrs.update({'data-cliente-select': 'true'})
+        self.fields['nome_cliente'].required = False
+        self.fields['nome_cliente'].widget.attrs.update({'readonly': 'readonly', 'data-cliente-nome': 'true'})
+        if current_cliente and current_cliente.Situacao != Cliente.SITUACAO_ATIVO:
+            self.fields['codigo_cliente'].help_text = 'Cliente atual esta inativo; selecione outro cliente ativo para trocar.'
         self.fields['pmo'].label = 'PMO'
         self.fields['pmo'].queryset = User.objects.filter(profile__is_pmo=True).order_by('username')
-        self.fields['pmo'].empty_label = '— selecione —'
+        self.fields['pmo'].empty_label = '??? selecione ???'
 
     def clean_codigo(self):
         return self.cleaned_data['codigo'].strip()
 
     def clean_codigo_cliente(self):
-        return self.cleaned_data['codigo_cliente'].strip()
+        codigo_cliente = self.cleaned_data['codigo_cliente'].strip()
+        cliente = self.clientes_por_codigo.get(codigo_cliente)
+        if not cliente:
+            raise forms.ValidationError('Selecione um cliente cadastrado.')
+        if cliente.Situacao != Cliente.SITUACAO_ATIVO and codigo_cliente != self.instance.codigo_cliente:
+            raise forms.ValidationError('Selecione um cliente ativo.')
+        self.selected_cliente = cliente
+        return codigo_cliente
 
     def clean_nome_cliente(self):
-        return self.cleaned_data['nome_cliente'].strip()
+        return self.cleaned_data.get('nome_cliente', '').strip()
 
     def clean_numero_chamado(self):
         return self.cleaned_data['numero_chamado'].strip()
@@ -264,9 +354,19 @@ class OrcamentoForm(forms.ModelForm):
             raise forms.ValidationError('A quantidade de horas deve ser maior que zero.')
         if self.instance.pk and horas + self.instance.horas_adicionais < self.instance.horas_apontadas:
             raise forms.ValidationError(
-                'O total de horas não pode ser menor que as horas já apontadas.'
+                'O total de horas n??o pode ser menor que as horas j?? apontadas.'
             )
         return horas
+
+    def save(self, commit=True):
+        orcamento = super().save(commit=False)
+        cliente = self.selected_cliente or self.clientes_por_codigo.get(orcamento.codigo_cliente)
+        if cliente:
+            orcamento.nome_cliente = cliente.Nome_Cliente
+        if commit:
+            orcamento.save()
+            self.save_m2m()
+        return orcamento
 
 
 class OrcamentoImportForm(forms.Form):

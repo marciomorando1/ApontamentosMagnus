@@ -31,6 +31,9 @@ from django.views.generic import RedirectView, TemplateView
 
 from .forms import (
     AgendaAtividadeForm,
+    ClienteEditForm,
+    ClienteForm,
+    ClienteImportForm,
     EstimativaForm,
     EstimativaItemCreateFormSet,
     EstimativaItemFormSet,
@@ -46,6 +49,7 @@ from .forms import (
 )
 from .models import (
     AgendaAtividade,
+    Cliente,
     Estimativa,
     Fase,
     FolgaFeriado,
@@ -664,6 +668,11 @@ ORCAMENTO_IMPORT_HEADERS = [
     'pmo',
 ]
 
+CLIENTE_IMPORT_HEADERS = [
+    'codigo',
+    'nome',
+]
+
 
 XLSX_BUILTIN_DURATION_FORMAT_IDS = {'20', '21', '45', '46', '47'}
 
@@ -777,6 +786,39 @@ def _clean_orcamento_import_hours(value, field):
                 return number * Decimal('24')
     return field.clean(value)
 
+
+
+def _validate_clientes_import(rows):
+    errors = []
+    if not rows:
+        return {}, ['A planilha esta vazia.']
+
+    headers = [_normalize_estimativa_text(value) for value in rows[0]]
+    while headers and not headers[-1]:
+        headers.pop()
+    if headers != CLIENTE_IMPORT_HEADERS:
+        return {}, ['Os cabecalhos devem estar nesta ordem: codigo, nome.']
+
+    clientes = {}
+    for row_number, row in enumerate(rows[1:], start=2):
+        values = (row + ['', ''])[:2]
+        if not any(values):
+            continue
+        codigo, nome = (value.strip() for value in values)
+        if not codigo:
+            errors.append(f'Linha {row_number}: Codigo do cliente e obrigatorio.')
+            continue
+        if not codigo.isdigit():
+            errors.append(f'Linha {row_number}: Codigo do cliente deve conter somente numeros.')
+        if not nome:
+            errors.append(f'Linha {row_number}: Nome do cliente e obrigatorio.')
+        if codigo in clientes and clientes[codigo] != nome:
+            errors.append(f'Linha {row_number}: o cliente {codigo} esta duplicado com nomes diferentes.')
+        clientes[codigo] = nome
+
+    if not clientes and not errors:
+        errors.append('A planilha nao possui clientes para importar.')
+    return clientes, errors
 
 def _validate_orcamentos_import(rows):
     errors = []
@@ -1546,6 +1588,115 @@ class SolicitacaoHorasDecisaoView(
 
         messages.success(request, mensagem)
         return redirect('horas:solicitacoes_horas_pendentes')
+
+
+
+class ClientesView(
+    GerenteProjetosRequiredMixin,
+    AuthenticatedViewMixin,
+    SidebarContextMixin,
+    TemplateView,
+):
+    template_name = 'horas/clientes.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        filtro_codigo = self.request.GET.get('codigo', '').strip()
+        filtro_nome = self.request.GET.get('nome', '').strip()
+        clientes = Cliente.objects.select_related('Usuario_Alteracao').order_by('Codigo_Cliente')
+        if filtro_codigo:
+            clientes = clientes.filter(Codigo_Cliente__icontains=filtro_codigo)
+        if filtro_nome:
+            clientes = clientes.filter(Nome_Cliente__icontains=filtro_nome)
+        context['section'] = 'clientes'
+        context['form'] = kwargs.get('form') or ClienteForm()
+        context['import_form'] = kwargs.get('import_form') or ClienteImportForm()
+        context['import_errors'] = kwargs.get('import_errors') or []
+        context['clientes'] = clientes
+        context['filtros_clientes'] = {
+            'codigo': filtro_codigo,
+            'nome': filtro_nome,
+        }
+        return context
+
+    def post(self, request, *args, **kwargs):
+        if request.POST.get('action') == 'importar':
+            import_form = ClienteImportForm(request.POST, request.FILES)
+            if import_form.is_valid():
+                try:
+                    rows = _read_orcamentos_xlsx(import_form.cleaned_data['arquivo'])
+                    clientes_data, import_errors = _validate_clientes_import(rows)
+                except ValueError as exc:
+                    import_errors = [str(exc)]
+                    clientes_data = {}
+                if not import_errors:
+                    created_count = 0
+                    updated_count = 0
+                    with transaction.atomic():
+                        for codigo, nome in clientes_data.items():
+                            _, created = Cliente.objects.update_or_create(
+                                Codigo_Cliente=codigo,
+                                defaults={
+                                    'Nome_Cliente': nome,
+                                    'Situacao': Cliente.SITUACAO_ATIVO,
+                                    'Usuario_Alteracao': request.user,
+                                },
+                            )
+                            if created:
+                                created_count += 1
+                            else:
+                                updated_count += 1
+                    messages.success(
+                        request,
+                        f'{created_count} cliente(s) criado(s) e {updated_count} atualizado(s) com sucesso.',
+                    )
+                    return redirect('horas:clientes')
+                messages.error(request, 'A planilha possui erros e nenhum cliente foi importado.')
+                return self.render_to_response(
+                    self.get_context_data(import_form=import_form, import_errors=import_errors)
+                )
+            messages.error(request, 'Selecione uma planilha XLSX valida.')
+            return self.render_to_response(self.get_context_data(import_form=import_form))
+
+        form = ClienteForm(request.POST)
+        if form.is_valid():
+            form.save(user=request.user)
+            messages.success(request, 'Cliente adicionado com sucesso.')
+            return redirect('horas:clientes')
+
+        messages.error(request, 'Corrija os campos destacados antes de adicionar o cliente.')
+        return self.render_to_response(self.get_context_data(form=form))
+
+
+
+class ClienteUpdateView(
+    GerenteProjetosRequiredMixin,
+    AuthenticatedViewMixin,
+    SidebarContextMixin,
+    TemplateView,
+):
+    template_name = 'horas/cliente_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.cliente = get_object_or_404(Cliente, pk=kwargs['pk'])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['section'] = 'clientes'
+        context['cliente'] = self.cliente
+        context['form'] = kwargs.get('form') or ClienteEditForm(instance=self.cliente)
+        return context
+
+    def post(self, request, *args, **kwargs):
+        form = ClienteEditForm(request.POST, instance=self.cliente)
+        if form.is_valid():
+            form.save(user=request.user)
+            messages.success(request, 'Cliente atualizado com sucesso.')
+            return redirect('horas:clientes')
+
+        messages.error(request, 'Corrija os campos destacados antes de salvar o cliente.')
+        return self.render_to_response(self.get_context_data(form=form))
 
 
 class OrcamentosView(

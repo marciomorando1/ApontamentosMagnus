@@ -49,7 +49,7 @@
     <button class="btn btn-primary btn-sm" type="submit">Importar clientes</button>
   </form>
 
-  <form method="get" action="{% url 'horas:clientes' %}" class="filter-row orcamentos-filter-row">
+  <form method="get" action="{% url 'horas:clientes' %}#clientes-grid" class="filter-row orcamentos-filter-row">
     <div class="field">
       <label for="fil-cliente-codigo">C&oacute;digo do Cliente</label>
       <input id="fil-cliente-codigo" name="codigo" type="text" value="{{ filtros_clientes.codigo }}" inputmode="numeric" pattern="\d*">
@@ -60,11 +60,11 @@
     </div>
     <button class="btn btn-primary btn-sm" type="submit">Buscar</button>
     {% if filtros_clientes.codigo or filtros_clientes.nome %}
-      <a class="btn btn-ghost btn-sm" href="{% url 'horas:clientes' %}">Limpar</a>
+      <a class="btn btn-ghost btn-sm" href="{% url 'horas:clientes' %}#clientes-grid">Limpar</a>
     {% endif %}
   </form>
 
-  <div class="table-wrap orcamentos-table-wrap">
+  <div id="clientes-grid" class="table-wrap orcamentos-table-wrap">
     <table class="orcamentos-table">
       <thead>
         <tr>

@@ -22,6 +22,18 @@
     .agenda-user-option:hover { background: var(--option-hover-bg); }
     .agenda-user-option.is-selected { background: rgba(0,169,145,0.16); color: var(--accent); }
     .agenda-calendar-frame { border: 1px solid var(--border); border-radius: 16px; overflow: hidden; background: var(--surface); box-shadow: inset 0 0 0 1px var(--inset-border-soft); }
+    .agenda-weeks { display: flex; flex-direction: column; }
+    .agenda-week { border-bottom: 1px solid var(--border); }
+    .agenda-week:last-child { border-bottom: none; }
+    .agenda-week-toggle { width: 100%; min-height: 48px; padding: 0 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border: none; border-bottom: 1px solid transparent; background: var(--surface); color: var(--text); font: inherit; cursor: pointer; }
+    .agenda-week-toggle:hover { background: var(--option-hover-bg); }
+    .agenda-week.is-expanded .agenda-week-toggle { border-bottom-color: var(--border); background: var(--agenda-weekday-bg); }
+    .agenda-week-title { display: flex; flex-direction: column; gap: 2px; text-align: left; min-width: 0; }
+    .agenda-week-label { font-size: 13px; font-weight: 600; color: var(--text); }
+    .agenda-week-range { font-size: 11px; color: var(--muted); }
+    .agenda-week-icon { width: 28px; height: 28px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; border: 1px solid var(--border); color: var(--muted); transition: transform 0.12s ease; }
+    .agenda-week.is-expanded .agenda-week-icon { transform: rotate(180deg); color: var(--accent); }
+    .agenda-week-panel[hidden] { display: none !important; }
     .agenda-weekdays, .agenda-grid { display: grid !important; grid-template-columns: repeat(7, minmax(0, 1fr)) !important; }
     .agenda-weekdays div { padding: 12px 10px; background: var(--agenda-weekday-bg); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
     .agenda-weekdays div:last-child { border-right: none; }
@@ -161,49 +173,66 @@
           <div>Sábado</div>
         </div>
 
-        <div class="agenda-grid">
+        <div class="agenda-weeks" data-agenda-weeks>
           {% for week in agenda_weeks %}
-            {% for day in week %}
-              <section class="agenda-day{% if not day.in_month %} is-outside{% endif %}{% if day.is_today %} is-today{% endif %}" data-href="{% url 'horas:agenda_nova' %}?data={{ day.date|date:'Y-m-d' }}{% if agenda_filters.mes %}&mes={{ agenda_filters.mes }}{% endif %}{% if selected_user %}&usuario={{ selected_user.pk }}{% endif %}">
-                <header class="agenda-day-head">
-                  <div class="agenda-day-number">{{ day.date|date:'d' }}</div>
-                  {% if not day.in_month %}
-                    <div class="agenda-day-month">{{ day.date|date:'M' }}</div>
-                  {% endif %}
-                </header>
-                <div class="agenda-day-body">
-                  {% if agenda_compare_mode %}
-                    {% for user_group in day.user_groups %}
-                      <div class="agenda-user-group">
-                        <div class="agenda-user-group-title">
-                          <span>{{ user_group.user.username }}</span>
-                          <span class="agenda-user-group-count">{{ user_group.total_items }}</span>
-                        </div>
-                        {% for folga in user_group.folgas_feriados %}
+            <section class="agenda-week" data-agenda-week{% if forloop.first %} data-default-week{% endif %}>
+              <button
+                class="agenda-week-toggle"
+                type="button"
+                data-agenda-week-toggle
+                aria-expanded="false"
+                aria-controls="agenda-week-{{ forloop.counter }}"
+              >
+                <span class="agenda-week-title">
+                  <span class="agenda-week-label">Semana {{ forloop.counter }}</span>
+                  <span class="agenda-week-range">{{ week.0.date|date:'d/m' }} a {{ week.6.date|date:'d/m' }}</span>
+                </span>
+                <span class="agenda-week-icon" aria-hidden="true">v</span>
+              </button>
+              <div class="agenda-grid agenda-week-panel" id="agenda-week-{{ forloop.counter }}" data-agenda-week-panel hidden>
+                {% for day in week %}
+                  <section class="agenda-day{% if not day.in_month %} is-outside{% endif %}{% if day.is_today %} is-today{% endif %}" data-href="{% url 'horas:agenda_nova' %}?data={{ day.date|date:'Y-m-d' }}{% if agenda_filters.mes %}&mes={{ agenda_filters.mes }}{% endif %}{% if selected_user %}&usuario={{ selected_user.pk }}{% endif %}">
+                    <header class="agenda-day-head">
+                      <div class="agenda-day-number">{{ day.date|date:'d' }}</div>
+                      {% if not day.in_month %}
+                        <div class="agenda-day-month">{{ day.date|date:'M' }}</div>
+                      {% endif %}
+                    </header>
+                    <div class="agenda-day-body">
+                      {% if agenda_compare_mode %}
+                        {% for user_group in day.user_groups %}
+                          <div class="agenda-user-group">
+                            <div class="agenda-user-group-title">
+                              <span>{{ user_group.user.username }}</span>
+                              <span class="agenda-user-group-count">{{ user_group.total_items }}</span>
+                            </div>
+                            {% for folga in user_group.folgas_feriados %}
+                              {% include 'horas/_agenda_folga_feriado_card.html' with folga=folga agenda_compare_mode=agenda_compare_mode %}
+                            {% endfor %}
+                            {% for atividade in user_group.atividades %}
+                              {% include 'horas/_agenda_event_card.html' with atividade=atividade day=day %}
+                            {% endfor %}
+                            {% if not user_group.total_items %}
+                              <div class="agenda-empty-slot">Sem atividades</div>
+                            {% endif %}
+                          </div>
+                        {% endfor %}
+                      {% else %}
+                        {% for folga in day.folgas_feriados %}
                           {% include 'horas/_agenda_folga_feriado_card.html' with folga=folga agenda_compare_mode=agenda_compare_mode %}
                         {% endfor %}
-                        {% for atividade in user_group.atividades %}
+                        {% for atividade in day.atividades %}
                           {% include 'horas/_agenda_event_card.html' with atividade=atividade day=day %}
                         {% endfor %}
-                        {% if not user_group.total_items %}
+                        {% if not day.folgas_feriados and not day.atividades %}
                           <div class="agenda-empty-slot">Sem atividades</div>
                         {% endif %}
-                      </div>
-                    {% endfor %}
-                  {% else %}
-                    {% for folga in day.folgas_feriados %}
-                      {% include 'horas/_agenda_folga_feriado_card.html' with folga=folga agenda_compare_mode=agenda_compare_mode %}
-                    {% endfor %}
-                    {% for atividade in day.atividades %}
-                      {% include 'horas/_agenda_event_card.html' with atividade=atividade day=day %}
-                    {% endfor %}
-                    {% if not day.folgas_feriados and not day.atividades %}
-                      <div class="agenda-empty-slot">Sem atividades</div>
-                    {% endif %}
-                  {% endif %}
-                </div>
-              </section>
-            {% endfor %}
+                      {% endif %}
+                    </div>
+                  </section>
+                {% endfor %}
+              </div>
+            </section>
           {% endfor %}
         </div>
       </div>
@@ -326,6 +355,34 @@
 
         syncPicker();
       });
+
+      var agendaWeeks = Array.from(document.querySelectorAll('[data-agenda-week]'));
+
+      function setWeekExpanded(week, shouldExpand) {
+        var toggle = week.querySelector('[data-agenda-week-toggle]');
+        var panel = week.querySelector('[data-agenda-week-panel]');
+        week.classList.toggle('is-expanded', shouldExpand);
+        if (toggle) toggle.setAttribute('aria-expanded', shouldExpand ? 'true' : 'false');
+        if (panel) panel.hidden = !shouldExpand;
+      }
+
+      agendaWeeks.forEach(function (week) {
+        var toggle = week.querySelector('[data-agenda-week-toggle]');
+        if (!toggle) return;
+        toggle.addEventListener('click', function () {
+          var panel = week.querySelector('[data-agenda-week-panel]');
+          setWeekExpanded(week, !panel || panel.hidden);
+        });
+      });
+
+      if (agendaWeeks.length) {
+        setWeekExpanded(
+          agendaWeeks.find(function (week) {
+            return week.querySelector('.agenda-day.is-today');
+          }) || document.querySelector('[data-default-week]') || agendaWeeks[0],
+          true
+        );
+      }
 
       var modal = document.querySelector('[data-agenda-modal]');
       var modalClose = modal ? modal.querySelector('[data-modal-close]') : null;

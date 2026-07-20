@@ -2839,6 +2839,21 @@ class AgendaViewTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertTrue(AgendaAtividade.objects.filter(titulo='Atividade delegada em folga').exists())
 
+    def test_agenda_renderiza_semanas_retrateis(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('horas:agenda'), {'mes': '2026-06'})
+
+        total_weeks = len(response.context['agenda_weeks'])
+        content = response.content.decode()
+        self.assertContains(response, 'data-agenda-weeks', html=False)
+        self.assertEqual(content.count('data-agenda-week-toggle\n'), total_weeks)
+        self.assertEqual(content.count('data-agenda-week-panel hidden'), total_weeks)
+        self.assertContains(response, '.agenda-week-panel[hidden] { display: none !important; }', html=False)
+        self.assertContains(response, 'setWeekExpanded', html=False)
+        self.assertContains(response, 'setWeekExpanded(week, !panel || panel.hidden)', html=False)
+        self.assertContains(response, 'Semana 1', html=False)
+
     def test_usuario_comum_ve_apenas_propria_agenda(self):
         self.criar_atividade(user=self.user, criado_por=self.user, titulo='Minha atividade')
         self.criar_atividade(user=self.other_user, criado_por=self.other_user, titulo='Atividade de outro')

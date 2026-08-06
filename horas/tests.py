@@ -1195,6 +1195,58 @@ class AuthenticationFlowTests(TestCase):
         self.assertTrue(user.profile.is_administrador)
 
 
+class RegistroAdminTests(AuthenticatedTestCase):
+    def setUp(self):
+        super().setUp()
+        self.admin_user = User.objects.create_superuser(
+            username='admin-registros',
+            password='SenhaForte123!',
+            email='admin-registros@example.com',
+        )
+        self.client.force_login(self.admin_user)
+        self.orcamento = Orcamento.objects.create(codigo='20001', nome='Admin Registros', horas='1000')
+
+    def test_admin_reabilita_registros_processados(self):
+        registro = self.criar_registro(
+            orcamento=self.orcamento,
+            processado=Registro.PROCESSADO_SIM,
+        )
+
+        response = self.client.post(
+            reverse('admin:horas_registro_changelist'),
+            data={
+                'action': 'marcar_como_nao_processado',
+                '_selected_action': [str(registro.pk)],
+                'index': '0',
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        registro.refresh_from_db()
+        self.assertEqual(registro.processado, Registro.PROCESSADO_NAO)
+        self.assertContains(response, '1 registro(s) marcado(s) como nao processado(s).')
+
+    def test_admin_filtra_registros_por_data_de_apontamento(self):
+        data_filtrada = date(2026, 6, 10)
+        orcamento_filtrado = Orcamento.objects.create(codigo='20002', nome='Dentro filtro', horas='1000')
+        orcamento_fora = Orcamento.objects.create(codigo='20003', nome='Fora filtro', horas='1000')
+        self.criar_registro(orcamento=orcamento_filtrado, data=data_filtrada)
+        self.criar_registro(orcamento=orcamento_fora, data=data_filtrada + timedelta(days=1))
+
+        response = self.client.get(
+            reverse('admin:horas_registro_changelist'),
+            data={
+                'data__gte': data_filtrada.isoformat(),
+                'data__lt': (data_filtrada + timedelta(days=1)).isoformat(),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        registros = list(response.context['cl'].result_list)
+        self.assertEqual(registros, list(Registro.objects.filter(orcamento=orcamento_filtrado)))
+
+
 class OrcamentosViewTests(AuthenticatedTestCase):
     headers_importacao = [
         'orcamento',

@@ -3,6 +3,7 @@ from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.contrib.auth.forms import AdminUserCreationForm
 from django.contrib import admin
 from django import forms
+from django.utils import timezone
 
 from .models import AgendaAtividade, Cliente, Fase, FolgaFeriado, Orcamento, Registro, Servico, SolicitacaoHoras, UserProfile
 
@@ -117,7 +118,9 @@ class OrcamentoAdmin(admin.ModelAdmin):
 @admin.register(Registro)
 class RegistroAdmin(admin.ModelAdmin):
     list_display = ('user', 'data', 'hora_inicio', 'hora_fim', 'orcamento', 'fase', 'servico', 'processado', 'total_formatado')
-    list_filter = ('user', 'data', 'orcamento', 'fase', 'servico', 'processado')
+    list_filter = (('data', admin.DateFieldListFilter), 'user', 'orcamento', 'fase', 'servico', 'processado')
+    date_hierarchy = 'data'
+    actions = ('marcar_como_nao_processado',)
     search_fields = (
         'user__username',
         'descricao',
@@ -132,6 +135,18 @@ class RegistroAdmin(admin.ModelAdmin):
     def delete_queryset(self, request, queryset):
         for registro in queryset:
             registro.delete()
+
+    @admin.action(description='Marcar registros selecionados como nao processados')
+    def marcar_como_nao_processado(self, request, queryset):
+        atualizados = queryset.update(
+            processado=Registro.PROCESSADO_NAO,
+            atualizado_em=timezone.now(),
+        )
+        self.message_user(
+            request,
+            f'{atualizados} registro(s) marcado(s) como nao processado(s).',
+            level='success',
+        )
 
 
 @admin.register(SolicitacaoHoras)

@@ -3483,6 +3483,30 @@ class AgendaViewTests(TestCase):
                     matches.append(len(day['atividades']))
         self.assertEqual(matches, [1, 1, 1])
 
+    def test_calendario_nao_mostra_atividade_do_intervalo_no_fim_de_semana(self):
+        self.criar_atividade(
+            user=self.user,
+            criado_por=self.user,
+            titulo='Faixa sem fim de semana',
+            data_inicio=date(2026, 8, 3),
+            data_fim=date(2026, 8, 10),
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('horas:agenda'), {'mes': '2026-08'})
+
+        atividades_por_data = {
+            day['date']: len(day['atividades'])
+            for week in response.context['agenda_weeks']
+            for day in week
+            if date(2026, 8, 3) <= day['date'] <= date(2026, 8, 10)
+        }
+        self.assertEqual(atividades_por_data[date(2026, 8, 3)], 1)
+        self.assertEqual(atividades_por_data[date(2026, 8, 7)], 1)
+        self.assertEqual(atividades_por_data[date(2026, 8, 8)], 0)
+        self.assertEqual(atividades_por_data[date(2026, 8, 9)], 0)
+        self.assertEqual(atividades_por_data[date(2026, 8, 10)], 1)
+
     def test_filtro_de_mes_mantem_usuario_na_navegacao(self):
         self.client.force_login(self.gp)
 

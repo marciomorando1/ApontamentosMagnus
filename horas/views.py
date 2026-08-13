@@ -201,6 +201,10 @@ def _month_navigation(month_start):
     return prev_month, next_month
 
 
+def _is_weekday(day):
+    return day.weekday() < 5
+
+
 def _build_agenda_calendar(month_start, atividades, selected_users=None, folgas_feriados=None):
     first_day, last_day = _month_bounds(month_start)
     cal = calendar.Calendar(firstweekday=6)
@@ -212,7 +216,8 @@ def _build_agenda_calendar(month_start, atividades, selected_users=None, folgas_
         current_day = max(atividade.data_inicio, first_day)
         final_day = min(atividade.data_fim, last_day)
         while current_day <= final_day:
-            atividades_por_dia[current_day].append(atividade)
+            if _is_weekday(current_day):
+                atividades_por_dia[current_day].append(atividade)
             current_day += timedelta(days=1)
 
     for folga in folgas_feriados or []:

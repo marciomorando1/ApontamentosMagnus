@@ -3361,7 +3361,7 @@ class AgendaViewTests(TestCase):
         self.assertContains(response, '12345 - Sem Nome Cliente')
         self.assertContains(response, 'data-client="12345 - Sem Nome Cliente"', html=False)
 
-    def test_card_agenda_nao_exibe_pmo_do_orcamento(self):
+    def test_card_agenda_exibe_pmo_do_orcamento(self):
         pmo = User.objects.create_user(
             username='pmo-agenda',
             password='senha-segura',
@@ -3375,7 +3375,8 @@ class AgendaViewTests(TestCase):
 
         response = self.client.get(reverse('horas:agenda'), {'mes': '2026-06'})
 
-        self.assertNotContains(response, 'PMO: Patricia PMO')
+        self.assertContains(response, 'PMO: Patricia PMO')
+        self.assertContains(response, 'data-pmo="Patricia PMO"', html=False)
 
     def test_card_agenda_fica_vermelho_quando_nao_ha_horas_disponiveis(self):
         self.orcamento.horas = Decimal('8')

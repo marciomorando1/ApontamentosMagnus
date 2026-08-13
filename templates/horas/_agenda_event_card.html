@@ -8,6 +8,7 @@
   data-time="{% if atividade.hora_inicio and atividade.hora_fim %}{{ atividade.hora_inicio|time:'H:i' }} - {{ atividade.hora_fim|time:'H:i' }}{% elif atividade.quantidade_horas is not None %}Qtd. {{ atividade.quantidade_horas_formatada }}{% endif %}"
   data-user="{{ atividade.user.username }}"
   data-budget="{{ atividade.orcamento.codigo }}"
+  data-pmo="{{ atividade.orcamento.pmo_nome }}"
   data-ticket="{{ atividade.numero_chamado }}"
   data-service="{% if atividade.servico %}{{ atividade.servico.codigo }}{% endif %}"
   data-product="{{ atividade.produto }}"
@@ -28,6 +29,9 @@
       <span>{{ atividade.hora_inicio|time:'H:i' }} - {{ atividade.hora_fim|time:'H:i' }}</span>
     {% elif atividade.quantidade_horas is not None %}
       <span>Qtd. {{ atividade.quantidade_horas_formatada }}</span>
+    {% endif %}
+    {% if atividade.orcamento.pmo_nome %}
+      <span>PMO: {{ atividade.orcamento.pmo_nome }}</span>
     {% endif %}
   </div>
 </div>

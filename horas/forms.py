@@ -293,7 +293,7 @@ class OrcamentoForm(forms.ModelForm):
         fields = ['codigo', 'codigo_cliente', 'nome_cliente', 'numero_chamado', 'nome', 'horas', 'pmo']
         error_messages = {
             'codigo': {
-                'unique': 'J?? existe um or??amento com este c??digo.',
+                'unique': 'Ja existe um orcamento com este codigo.',
             },
         }
         widgets = {
@@ -354,7 +354,7 @@ class OrcamentoForm(forms.ModelForm):
             raise forms.ValidationError('A quantidade de horas deve ser maior que zero.')
         if self.instance.pk and horas + self.instance.horas_adicionais < self.instance.horas_apontadas:
             raise forms.ValidationError(
-                'O total de horas n??o pode ser menor que as horas j?? apontadas.'
+                'O total de horas nao pode ser menor que as horas ja apontadas.'
             )
         return horas
 
@@ -665,6 +665,13 @@ class AgendaAtividadeForm(forms.ModelForm):
             queryset = Orcamento.objects.filter(Q(ativo=True) | Q(pk=self.instance.orcamento_id))
         self.fields['orcamento'].queryset = queryset.order_by('codigo')
         self.fields['orcamento'].empty_label = '— selecione —'
+        self.fields['orcamento'].widget.attrs.update(
+            {
+                'data-searchable-select': 'true',
+                'data-search-placeholder': 'Digite para filtrar orcamentos',
+                'data-search-empty': 'Nenhum orcamento encontrado',
+            }
+        )
 
         self.fields['servico'].queryset = Servico.objects.order_by('codigo')
         self.fields['servico'].empty_label = '— selecione —'

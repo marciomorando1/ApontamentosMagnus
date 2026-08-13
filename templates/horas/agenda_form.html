@@ -150,6 +150,149 @@
     const clientField = document.getElementById('{{ form.cliente.id_for_label }}');
     const ticketField = document.getElementById('{{ form.numero_chamado.id_for_label }}');
 
+
+    function normalizeSearchText(value) {
+      return value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    }
+
+    function makeSearchableSelect(select) {
+      if (!select || select.dataset.searchReady === 'true') return;
+
+      const options = Array.from(select.options).map((option) => ({
+        value: option.value,
+        label: option.textContent.trim(),
+        searchable: normalizeSearchText(option.textContent.trim()),
+        disabled: option.disabled,
+      }));
+      const selectableOptions = options.filter((option) => option.value && !option.disabled);
+      const selectedOption = options.find((option) => option.value === select.value);
+      const wasRequired = select.required;
+      const wrapper = document.createElement('div');
+      const input = document.createElement('input');
+      const list = document.createElement('div');
+      let activeIndex = -1;
+      let visibleOptions = [];
+
+      select.dataset.searchReady = 'true';
+      select.required = false;
+      select.classList.add('search-select-original');
+      select.hidden = true;
+      select.tabIndex = -1;
+      select.setAttribute('aria-hidden', 'true');
+
+      wrapper.className = 'search-select';
+      input.type = 'text';
+      input.className = Array.from(select.classList)
+        .filter((className) => className !== 'search-select-original')
+        .join(' ');
+      input.placeholder = select.dataset.searchPlaceholder || 'Digite para filtrar';
+      input.autocomplete = 'off';
+      input.required = wasRequired;
+      input.value = selectedOption && selectedOption.value ? selectedOption.label : '';
+      list.className = 'search-select-list';
+      list.hidden = true;
+
+      select.parentNode.insertBefore(wrapper, select);
+      wrapper.appendChild(input);
+      wrapper.appendChild(list);
+      wrapper.appendChild(select);
+
+      const label = document.querySelector(`label[for="${select.id}"]`);
+      if (label) {
+        input.id = `${select.id}_search`;
+        label.setAttribute('for', input.id);
+      }
+
+      function chooseOption(option) {
+        select.value = option.value;
+        input.value = option.label;
+        input.setCustomValidity('');
+        list.hidden = true;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+
+      function renderList() {
+        const query = normalizeSearchText(input.value.trim());
+        list.innerHTML = '';
+        if (!query) {
+          visibleOptions = [];
+          activeIndex = -1;
+          list.hidden = true;
+          input.setAttribute('aria-expanded', 'false');
+          return;
+        }
+
+        visibleOptions = selectableOptions.filter((option) => option.searchable.includes(query));
+        activeIndex = -1;
+
+        if (!visibleOptions.length) {
+          const empty = document.createElement('div');
+          empty.className = 'search-select-empty';
+          empty.textContent = select.dataset.searchEmpty || 'Nenhum item encontrado';
+          list.appendChild(empty);
+          list.hidden = false;
+          return;
+        }
+
+        visibleOptions.forEach((option, index) => {
+          const item = document.createElement('div');
+          item.className = `search-select-option${index === activeIndex ? ' is-active' : ''}`;
+          item.role = 'option';
+          item.textContent = option.label;
+          item.addEventListener('mousedown', (event) => {
+            event.preventDefault();
+            chooseOption(option);
+          });
+          list.appendChild(item);
+        });
+        list.hidden = false;
+      }
+
+      input.addEventListener('focus', () => {
+        if (input.value.trim()) renderList();
+      });
+      input.addEventListener('input', () => {
+        const exactOption = selectableOptions.find(
+          (option) => option.searchable === normalizeSearchText(input.value.trim())
+        );
+        select.value = exactOption ? exactOption.value : '';
+        input.setCustomValidity('');
+        renderList();
+        if (exactOption) select.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+          list.hidden = true;
+          return;
+        }
+        if (!['ArrowDown', 'ArrowUp', 'Enter'].includes(event.key)) return;
+        event.preventDefault();
+        if (list.hidden) renderList();
+        if (!visibleOptions.length) return;
+        if (event.key === 'ArrowDown') activeIndex = (activeIndex + 1) % visibleOptions.length;
+        if (event.key === 'ArrowUp') activeIndex = (activeIndex - 1 + visibleOptions.length) % visibleOptions.length;
+        if (event.key === 'Enter') chooseOption(visibleOptions[activeIndex]);
+        if (event.key !== 'Enter') renderList();
+      });
+      input.addEventListener('blur', () => {
+        window.setTimeout(() => {
+          list.hidden = true;
+          input.setAttribute('aria-expanded', 'false');
+        }, 120);
+      });
+      if (select.form) {
+        select.form.addEventListener('submit', (event) => {
+          if (!wasRequired || select.value) return;
+          input.setCustomValidity('Selecione um item da lista.');
+          input.reportValidity();
+          event.preventDefault();
+        });
+      }
+    }
+
+    if (budgetField && budgetField.dataset.searchableSelect === 'true') {
+      makeSearchableSelect(budgetField);
+    }
     function maskDurationInput(input) {
       const digits = input.value.replace(/\D/g, '').slice(0, 6);
       if (digits.length <= 2) {

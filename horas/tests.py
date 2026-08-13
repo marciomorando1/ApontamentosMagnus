@@ -3140,6 +3140,16 @@ class AgendaViewTests(TestCase):
         self.assertContains(response, 'suggestMaximumHoursFromSchedule', html=False)
         self.assertContains(response, 'formatMinutesAsDuration(endMinutes - startMinutes)', html=False)
         self.assertContains(response, 'suggestMaximumHoursFromQuantity', html=False)
+        self.assertContains(response, 'name="user"', html=False)
+        self.assertContains(response, 'name="orcamento"', html=False)
+        self.assertContains(response, 'data-searchable-select="true"', html=False, count=1)
+        self.assertContains(response, 'data-search-placeholder="Digite para filtrar orcamentos"', html=False)
+        self.assertContains(response, 'makeSearchableSelect', html=False)
+        self.assertContains(response, 'searchable.includes(query)', html=False)
+        self.assertContains(response, 'if (!query)', html=False)
+        self.assertContains(response, 'if (input.value.trim()) renderList()', html=False)
+        self.assertContains(response, "document.createElement('div')", html=False)
+        self.assertNotContains(response, "document.createElement('button')", html=False)
 
     def test_nova_atividade_bloqueia_e_preenche_cliente_e_chamado_pelo_orcamento(self):
         self.client.force_login(self.user)

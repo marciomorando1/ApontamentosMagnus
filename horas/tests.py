@@ -1284,6 +1284,10 @@ class ClientesViewTests(AuthenticatedTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Importar do ERP')
         self.assertContains(response, 'name="action" value="importar_erp"', html=False)
+        self.assertContains(response, 'id="erp-import-form"', html=False)
+        self.assertContains(response, 'id="erp-import-status"', html=False)
+        self.assertContains(response, 'Processando importação...')
+        self.assertContains(response, "erpImportButton.disabled = true", html=False)
 
     @patch('horas.views._buscar_clientes_erp')
     def test_importar_do_erp_cria_e_atualiza_clientes(self, buscar_clientes_erp):

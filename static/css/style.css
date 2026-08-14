@@ -345,6 +345,7 @@ nav { padding: 12px 0; flex: 1; }
 }
 .btn-primary { background: var(--accent); color: #0f0f0f; }
 .btn-primary:hover { background: var(--accent-dark); }
+.btn:disabled { cursor: wait; opacity: 0.72; }
 .btn-danger { background: var(--danger); color: #fff; }
 .btn-danger:hover { background: #e54e46; }
 .btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
@@ -1005,4 +1006,3 @@ tr.processed-row .desc {
     letter-spacing: 0.18em;
   }
 }
-

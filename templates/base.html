@@ -72,6 +72,11 @@
         <a class="nav-item {% if section == 'estimativas' %}active{% endif %}" href="{% url 'horas:estimativas' %}">
           <span class="nav-icon">E</span> Estimativas
         </a>
+        {% if is_gp %}
+          <a class="nav-item {% if section == 'configuracoes' %}active{% endif %}" href="{% url 'horas:configuracoes' %}">
+            <span class="nav-icon">⚙</span> Configurações
+          </a>
+        {% endif %}
       </nav>
       <div class="sidebar-footer">
         <div class="user-chip">{{ user.username }}</div>
@@ -158,4 +163,3 @@
   {% block scripts %}{% endblock %}
 </body>
 </html>
-

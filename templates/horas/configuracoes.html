@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+
+{% block title %}Configurações | Apontamento de Horas{% endblock %}
+
+{% block content %}
+  <div class="page-title">Configurações</div>
+
+  <form method="post" class="add-orc-card">
+    {% csrf_token %}
+    <h3>ERP</h3>
+    <div class="form-row single">
+      <div class="field">
+        <label for="{{ form.url_erp.id_for_label }}">URL</label>
+        {{ form.url_erp }}
+        {% for error in form.url_erp.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="field">
+        <label for="{{ form.usuario_erp.id_for_label }}">User</label>
+        {{ form.usuario_erp }}
+        {% for error in form.usuario_erp.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="field">
+        <label for="{{ form.senha_erp.id_for_label }}">Password</label>
+        {{ form.senha_erp }}
+        {% for error in form.senha_erp.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+    </div>
+    <button class="btn btn-primary btn-sm" type="submit">Salvar</button>
+  </form>
+{% endblock %}

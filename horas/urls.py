@@ -24,6 +24,7 @@ urlpatterns = [
     path('estimativas/<int:pk>/editar/', views.EstimativaUpdateView.as_view(), name='estimativa_editar'),
     path('estimativas/<int:pk>/remover/', views.EstimativaDeleteView.as_view(), name='estimativa_remover'),
     path('estimativas/<int:pk>/exportar/', views.exportar_estimativa_xlsx, name='estimativa_exportar'),
+    path('configuracoes/', views.ConfiguracoesView.as_view(), name='configuracoes'),
     path('resumo/', views.ResumoView.as_view(), name='resumo'),
     path('solicitacoes-horas/', views.SolicitacoesHorasView.as_view(), name='solicitacoes_horas'),
     path(

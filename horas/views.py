@@ -1,5 +1,6 @@
 import csv
 import calendar
+import logging
 import re
 import unicodedata
 import zipfile
@@ -8,9 +9,10 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlparse, urlencode, urlunparse
 from xml.etree import ElementTree as ET
 
+import requests
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model
@@ -28,12 +30,16 @@ from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.generic import RedirectView, TemplateView
+from zeep import Client as ZeepClient
+from zeep.helpers import serialize_object
+from zeep.transports import Transport
 
 from .forms import (
     AgendaAtividadeForm,
     ClienteEditForm,
     ClienteForm,
     ClienteImportForm,
+    ConfiguracaoSistemaForm,
     EstimativaForm,
     EstimativaItemCreateFormSet,
     EstimativaItemFormSet,
@@ -42,6 +48,7 @@ from .forms import (
     DurationField,
     OrcamentoForm,
     OrcamentoImportForm,
+    REGISTRO_DESCRICAO_MAX_LENGTH,
     RegistroForm,
     RequiredPasswordChangeForm,
     ServicoForm,
@@ -50,6 +57,7 @@ from .forms import (
 from .models import (
     AgendaAtividade,
     Cliente,
+    ConfiguracaoSistema,
     Estimativa,
     Fase,
     FolgaFeriado,
@@ -66,6 +74,12 @@ REL_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
 ET.register_namespace('', XLSX_NS)
 ET.register_namespace('r', REL_NS)
 User = get_user_model()
+logger = logging.getLogger(__name__)
+ERP_CLIENTES_WSDL_URL = 'http://wsadmteste.magnus.com.br/g5-senior-services/sapiens_Synccom_magnus_rat?wsdl'
+ERP_CLIENTES_TIMEOUT = 30
+ERP_CLIENTES_INTERNAL_BASE_URL = 'http://srvsnr01:8088'
+ERP_CLIENTES_PUBLIC_BASE_URL = 'http://wsadmteste.magnus.com.br:8088'
+ERP_CLIENTES_SERVICE_PATH = '/g5-senior-services/sapiens_Synccom_magnus_rat'
 MONTH_LABELS = [
     '',
     'Janeiro',
@@ -825,6 +839,142 @@ def _validate_clientes_import(rows):
         errors.append('A planilha nao possui clientes para importar.')
     return clientes, errors
 
+
+def _erp_value_to_text(value):
+    if value is None:
+        return ''
+    if isinstance(value, Decimal) and value == value.to_integral_value():
+        return str(int(value))
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value).strip()
+
+
+def _get_erp_field(record, *field_names):
+    if not isinstance(record, dict):
+        return None
+    fields_by_name = {str(key).lower(): value for key, value in record.items()}
+    for field_name in field_names:
+        value = fields_by_name.get(field_name.lower())
+        if value is not None:
+            return value
+    return None
+
+
+def _iter_erp_cliente_records(value):
+    if isinstance(value, dict):
+        if _get_erp_field(value, 'codcli', 'codCli') is not None and _get_erp_field(value, 'nomCli', 'nomcli') is not None:
+            yield value
+        for child in value.values():
+            yield from _iter_erp_cliente_records(child)
+    elif isinstance(value, (list, tuple)):
+        for child in value:
+            yield from _iter_erp_cliente_records(child)
+
+
+def _extract_clientes_erp_data(response):
+    clientes = {}
+    errors = []
+    serialized_response = serialize_object(response)
+    erro_execucao = _get_erp_field(serialized_response, 'erroExecucao')
+    if erro_execucao:
+        return {}, [f'ERP retornou erro: {_erp_value_to_text(erro_execucao)}']
+    for record in _iter_erp_cliente_records(serialized_response):
+        codigo = _erp_value_to_text(_get_erp_field(record, 'codcli', 'codCli'))
+        nome = _erp_value_to_text(_get_erp_field(record, 'nomCli', 'nomcli'))
+        if not codigo:
+            errors.append('ERP retornou um cliente sem codigo.')
+            continue
+        if not codigo.isdigit():
+            errors.append(f'ERP retornou codigo de cliente invalido: {codigo}.')
+            continue
+        if not nome:
+            errors.append(f'ERP retornou o cliente {codigo} sem nome.')
+            continue
+        clientes[codigo] = nome
+
+    if not clientes and not errors:
+        errors.append('ERP nao retornou clientes para importar.')
+    return clientes, errors
+
+
+def _erp_wsdl_url(configuracao):
+    base_url = (configuracao.url_erp if configuracao else ERP_CLIENTES_WSDL_URL).rstrip('/')
+    if base_url.endswith('?wsdl'):
+        return base_url
+    return f'{base_url}{ERP_CLIENTES_SERVICE_PATH}?wsdl'
+
+
+def _erp_public_base_url(configuracao):
+    base_url = (configuracao.url_erp if configuracao else '').rstrip('/')
+    if not base_url:
+        return ERP_CLIENTES_PUBLIC_BASE_URL
+    parsed = urlparse(base_url)
+    netloc = parsed.hostname or parsed.netloc
+    if parsed.username or parsed.password:
+        netloc = parsed.netloc.rsplit('@', 1)[-1]
+    if ':' not in netloc:
+        netloc = f'{netloc}:8088'
+    return urlunparse((parsed.scheme or 'http', netloc, '', '', '', ''))
+
+
+class SeniorErpTransport(Transport):
+    def __init__(self, *args, public_base_url=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.public_base_url = public_base_url or ERP_CLIENTES_PUBLIC_BASE_URL
+
+    def _rewrite_url(self, url):
+        return url.replace(ERP_CLIENTES_INTERNAL_BASE_URL, self.public_base_url)
+
+    def load(self, url):
+        return super().load(self._rewrite_url(url))
+
+    def post(self, address, message, headers):
+        return super().post(self._rewrite_url(address), message, headers)
+
+
+def _buscar_clientes_erp():
+    configuracao = ConfiguracaoSistema.objects.first()
+    if not configuracao or not configuracao.usuario_erp or not configuracao.senha_erp:
+        return {}, ['Configure URL, usuario e senha do ERP antes de importar clientes.']
+
+    session = requests.Session()
+    session.trust_env = False
+    transport = SeniorErpTransport(
+        session=session,
+        timeout=ERP_CLIENTES_TIMEOUT,
+        operation_timeout=ERP_CLIENTES_TIMEOUT,
+        public_base_url=_erp_public_base_url(configuracao),
+    )
+    client = ZeepClient(_erp_wsdl_url(configuracao), transport=transport)
+    response = client.service.buscarClientes(
+        user=configuracao.usuario_erp,
+        password=configuracao.senha_erp,
+        encryption=configuracao.encryption_erp,
+        parameters={},
+    )
+    return _extract_clientes_erp_data(response)
+
+
+def _salvar_clientes_data(clientes_data, user):
+    created_count = 0
+    updated_count = 0
+    with transaction.atomic():
+        for codigo, nome in clientes_data.items():
+            _, created = Cliente.objects.update_or_create(
+                Codigo_Cliente=codigo,
+                defaults={
+                    'Nome_Cliente': nome,
+                    'Situacao': Cliente.SITUACAO_ATIVO,
+                    'Usuario_Alteracao': user,
+                },
+            )
+            if created:
+                created_count += 1
+            else:
+                updated_count += 1
+    return created_count, updated_count
+
 def _validate_orcamentos_import(rows):
     errors = []
     if not rows:
@@ -1206,6 +1356,7 @@ class TimerView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
             form = RegistroForm(initial=initial)
         context['form'] = form
         context['extra_rows'] = kwargs.get('extra_rows') or []
+        context['descricao_max_length'] = REGISTRO_DESCRICAO_MAX_LENGTH
         return context
 
     def post(self, request, *args, **kwargs):
@@ -1595,6 +1746,42 @@ class SolicitacaoHorasDecisaoView(
         return redirect('horas:solicitacoes_horas_pendentes')
 
 
+class ConfiguracoesView(
+    GerenteProjetosRequiredMixin,
+    AuthenticatedViewMixin,
+    SidebarContextMixin,
+    TemplateView,
+):
+    template_name = 'horas/configuracoes.html'
+
+    def get_configuracao(self):
+        configuracao = ConfiguracaoSistema.objects.first()
+        if configuracao:
+            return configuracao
+        return ConfiguracaoSistema(url_erp='http://wsadmteste.magnus.com.br', encryption_erp=0)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        configuracao = kwargs.get('configuracao') or self.get_configuracao()
+        context['section'] = 'configuracoes'
+        context['configuracao'] = configuracao if configuracao.pk else None
+        context['form'] = kwargs.get('form') or ConfiguracaoSistemaForm(instance=configuracao)
+        return context
+
+    def post(self, request, *args, **kwargs):
+        configuracao = ConfiguracaoSistema.objects.first()
+        form = ConfiguracaoSistemaForm(request.POST, instance=configuracao)
+        if form.is_valid():
+            configuracao = form.save(commit=False)
+            configuracao.encryption_erp = 0
+            configuracao.save()
+            messages.success(request, 'Configuracoes salvas com sucesso.')
+            return redirect('horas:configuracoes')
+
+        messages.error(request, 'Corrija os campos destacados antes de salvar as configuracoes.')
+        return self.render_to_response(self.get_context_data(form=form, configuracao=configuracao))
+
+
 
 class ClientesView(
     GerenteProjetosRequiredMixin,
@@ -1625,6 +1812,28 @@ class ClientesView(
         return context
 
     def post(self, request, *args, **kwargs):
+        if request.POST.get('action') == 'importar_erp':
+            try:
+                clientes_data, import_errors = _buscar_clientes_erp()
+            except Exception as exc:
+                logger.exception('Erro ao consultar clientes no ERP: %s', exc)
+                messages.error(request, 'Nao foi possivel consultar os clientes no ERP. Tente novamente mais tarde.')
+                return redirect('horas:clientes')
+
+            if import_errors:
+                messages.error(request, 'ERP retornou dados invalidos e nenhum cliente foi importado.')
+                return self.render_to_response(self.get_context_data(import_errors=import_errors))
+
+            created_count, updated_count = _salvar_clientes_data(clientes_data, request.user)
+            messages.success(
+                request,
+                (
+                    'Importacao do ERP concluida: '
+                    f'{created_count} cliente(s) criado(s) e {updated_count} atualizado(s) com sucesso.'
+                ),
+            )
+            return redirect('horas:clientes')
+
         if request.POST.get('action') == 'importar':
             import_form = ClienteImportForm(request.POST, request.FILES)
             if import_form.is_valid():
@@ -1635,22 +1844,7 @@ class ClientesView(
                     import_errors = [str(exc)]
                     clientes_data = {}
                 if not import_errors:
-                    created_count = 0
-                    updated_count = 0
-                    with transaction.atomic():
-                        for codigo, nome in clientes_data.items():
-                            _, created = Cliente.objects.update_or_create(
-                                Codigo_Cliente=codigo,
-                                defaults={
-                                    'Nome_Cliente': nome,
-                                    'Situacao': Cliente.SITUACAO_ATIVO,
-                                    'Usuario_Alteracao': request.user,
-                                },
-                            )
-                            if created:
-                                created_count += 1
-                            else:
-                                updated_count += 1
+                    created_count, updated_count = _salvar_clientes_data(clientes_data, request.user)
                     messages.success(
                         request,
                         f'{created_count} cliente(s) criado(s) e {updated_count} atualizado(s) com sucesso.',

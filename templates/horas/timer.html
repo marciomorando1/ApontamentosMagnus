@@ -96,7 +96,7 @@
           <div class="form-row single">
             <div class="field">
               <label>Descrição da atividade</label>
-              <textarea name="extra_descricao">{{ row.descricao }}</textarea>
+              <textarea name="extra_descricao" maxlength="{{ descricao_max_length }}">{{ row.descricao }}</textarea>
             </div>
           </div>
         </div>
@@ -132,7 +132,7 @@
       <div class="form-row single">
         <div class="field">
           <label>Descrição da atividade</label>
-          <textarea name="extra_descricao"></textarea>
+          <textarea name="extra_descricao" maxlength="{{ descricao_max_length }}"></textarea>
         </div>
       </div>
     </div>

@@ -72,6 +72,22 @@ class Cliente(models.Model):
     def __str__(self):
         return f'{self.Codigo_Cliente} - {self.Nome_Cliente}'
 
+
+class ConfiguracaoSistema(models.Model):
+    url_erp = models.URLField('URL ERP', max_length=255, default='http://wsadmteste.magnus.com.br')
+    usuario_erp = models.CharField('Usuario ERP', max_length=100)
+    senha_erp = models.CharField('Senha ERP', max_length=200)
+    encryption_erp = models.PositiveSmallIntegerField('Encryption ERP', default=0)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Configuracao do Sistema'
+        verbose_name_plural = 'Configuracoes do Sistema'
+
+    def __str__(self):
+        return 'Configuracoes'
+
+
 class Orcamento(models.Model):
     responsavel = models.ForeignKey(
         settings.AUTH_USER_MODEL,

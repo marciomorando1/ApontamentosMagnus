@@ -1,6 +1,7 @@
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from io import BytesIO
+from unittest.mock import patch
 import zipfile
 from xml.etree import ElementTree as ET
 
@@ -10,9 +11,11 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse, set_script_prefix
 
+from .forms import REGISTRO_DESCRICAO_MAX_LENGTH
 from .models import (
     AgendaAtividade,
     Cliente,
+    ConfiguracaoSistema,
     Estimativa,
     Fase,
     FolgaFeriado,
@@ -216,6 +219,28 @@ class TimerViewTests(AuthenticatedTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(Registro.objects.count(), 1)
         self.assertEqual(Registro.objects.get().user, self.user)
+
+    def test_nao_cria_registro_timer_com_descricao_acima_do_limite(self):
+        response = self.client.post(
+            reverse('horas:timer'),
+            data={
+                'submission_mode': 'timer',
+                'data': date.today().isoformat(),
+                'orcamento': self.orcamento.pk,
+                'fase': self.fase.pk,
+                'servico': self.servico.pk,
+                'hora_inicio': '08:00',
+                'hora_fim': '09:30',
+                'descricao': 'a' * (REGISTRO_DESCRICAO_MAX_LENGTH + 1),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Registro.objects.count(), 0)
+        self.assertContains(
+            response,
+            f'A descricao deve ter no maximo {REGISTRO_DESCRICAO_MAX_LENGTH} caracteres.',
+        )
 
     def test_abre_apontamento_com_data_e_orcamento_preenchidos(self):
         data_apontamento = date(2026, 6, 10)
@@ -1245,6 +1270,103 @@ class RegistroAdminTests(AuthenticatedTestCase):
         self.assertEqual(response.status_code, 200)
         registros = list(response.context['cl'].result_list)
         self.assertEqual(registros, list(Registro.objects.filter(orcamento=orcamento_filtrado)))
+
+
+class ClientesViewTests(AuthenticatedTestCase):
+    def setUp(self):
+        super().setUp()
+        self.user.profile.is_gerente_projetos = True
+        self.user.profile.save(update_fields=['is_gerente_projetos'])
+
+    def test_exibe_botao_importar_do_erp(self):
+        response = self.client.get(reverse('horas:clientes'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Importar do ERP')
+        self.assertContains(response, 'name="action" value="importar_erp"', html=False)
+
+    @patch('horas.views._buscar_clientes_erp')
+    def test_importar_do_erp_cria_e_atualiza_clientes(self, buscar_clientes_erp):
+        Cliente.objects.create(
+            Codigo_Cliente='100',
+            Nome_Cliente='Nome Antigo',
+            Situacao=Cliente.SITUACAO_INATIVO,
+        )
+        buscar_clientes_erp.return_value = (
+            {
+                '100': 'Nome Atualizado',
+                '101': 'Cliente Novo',
+            },
+            [],
+        )
+
+        response = self.client.post(
+            reverse('horas:clientes'),
+            data={'action': 'importar_erp'},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Importacao do ERP concluida')
+        cliente_atualizado = Cliente.objects.get(Codigo_Cliente='100')
+        cliente_novo = Cliente.objects.get(Codigo_Cliente='101')
+        self.assertEqual(cliente_atualizado.Nome_Cliente, 'Nome Atualizado')
+        self.assertEqual(cliente_atualizado.Situacao, Cliente.SITUACAO_ATIVO)
+        self.assertEqual(cliente_atualizado.Usuario_Alteracao, self.user)
+        self.assertEqual(cliente_novo.Nome_Cliente, 'Cliente Novo')
+        self.assertEqual(cliente_novo.Usuario_Alteracao, self.user)
+
+    @patch('horas.views.ZeepClient')
+    def test_busca_clientes_erp_envia_credenciais_e_parametros_vazios(self, zeep_client):
+        from horas.views import _buscar_clientes_erp
+
+        ConfiguracaoSistema.objects.update_or_create(
+            pk=1,
+            defaults={
+                'url_erp': 'http://wsadmteste.magnus.com.br',
+                'usuario_erp': 'usuario-erp',
+                'senha_erp': 'senha-erp',
+                'encryption_erp': 0,
+            },
+        )
+        zeep_client.return_value.service.buscarClientes.return_value = {
+            'clientes': [
+                {
+                    'codCli': '200',
+                    'nomCli': 'Cliente ERP',
+                },
+            ],
+        }
+
+        clientes, erros = _buscar_clientes_erp()
+
+        self.assertEqual(clientes, {'200': 'Cliente ERP'})
+        self.assertEqual(erros, [])
+        zeep_client.return_value.service.buscarClientes.assert_called_once_with(
+            user='usuario-erp',
+            password='senha-erp',
+            encryption=0,
+            parameters={},
+        )
+
+    def test_configuracoes_salva_dados_do_erp(self):
+        response = self.client.post(
+            reverse('horas:configuracoes'),
+            data={
+                'url_erp': 'http://wsadmteste.magnus.com.br/',
+                'usuario_erp': 'marcio.morando',
+                'senha_erp': 'Arthur@2026',
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Configuracoes salvas com sucesso.')
+        configuracao = ConfiguracaoSistema.objects.get()
+        self.assertEqual(configuracao.url_erp, 'http://wsadmteste.magnus.com.br')
+        self.assertEqual(configuracao.usuario_erp, 'marcio.morando')
+        self.assertEqual(configuracao.senha_erp, 'Arthur@2026')
+        self.assertEqual(configuracao.encryption_erp, 0)
 
 
 class OrcamentosViewTests(AuthenticatedTestCase):

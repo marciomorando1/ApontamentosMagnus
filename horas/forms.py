@@ -10,6 +10,7 @@ from django.db.models import Q
 from .models import (
     AgendaAtividade,
     Cliente,
+    ConfiguracaoSistema,
     Estimativa,
     EstimativaItem,
     Fase,
@@ -23,6 +24,8 @@ from .models import (
 
 
 User = get_user_model()
+
+REGISTRO_DESCRICAO_MAX_LENGTH = 999
 
 
 class RequiredPasswordChangeForm(PasswordChangeForm):
@@ -41,6 +44,24 @@ class RequiredPasswordChangeForm(PasswordChangeForm):
         strip=False,
         widget=forms.PasswordInput(attrs={'autocomplete': 'new-password'}),
     )
+
+
+class ConfiguracaoSistemaForm(forms.ModelForm):
+    class Meta:
+        model = ConfiguracaoSistema
+        fields = ['url_erp', 'usuario_erp', 'senha_erp']
+        widgets = {
+            'senha_erp': forms.PasswordInput(render_value=True),
+        }
+
+    def clean_url_erp(self):
+        return self.cleaned_data['url_erp'].strip().rstrip('/')
+
+    def clean_usuario_erp(self):
+        return self.cleaned_data['usuario_erp'].strip()
+
+    def clean_senha_erp(self):
+        return self.cleaned_data['senha_erp'].strip()
 
 
 MODULO_PROCESSO_CHOICES = [
@@ -203,6 +224,7 @@ class RegistroForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields['descricao'].widget.attrs['maxlength'] = REGISTRO_DESCRICAO_MAX_LENGTH
         if not self.is_bound and not self.instance.pk:
             self.fields['data'].initial = date.today()
         queryset = Orcamento.objects.filter(ativo=True)
@@ -219,6 +241,13 @@ class RegistroForm(forms.ModelForm):
         self.fields['servico'].queryset = Servico.objects.order_by('codigo')
         self.fields['servico'].empty_label = '— selecione —'
 
+    def clean_descricao(self):
+        descricao = self.cleaned_data['descricao'].strip()
+        if len(descricao) > REGISTRO_DESCRICAO_MAX_LENGTH:
+            raise forms.ValidationError(
+                f'A descricao deve ter no maximo {REGISTRO_DESCRICAO_MAX_LENGTH} caracteres.'
+            )
+        return descricao
 
 
 class ClienteForm(forms.ModelForm):

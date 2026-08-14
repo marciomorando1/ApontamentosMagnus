@@ -49,6 +49,13 @@
     <button class="btn btn-primary btn-sm" type="submit">Importar clientes</button>
   </form>
 
+  <form method="post" class="add-orc-card" style="margin-bottom:24px;">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="importar_erp">
+    <h3>Importar do ERP</h3>
+    <button class="btn btn-primary btn-sm" type="submit">Importar do ERP</button>
+  </form>
+
   <form method="get" action="{% url 'horas:clientes' %}#clientes-grid" class="filter-row orcamentos-filter-row">
     <div class="field">
       <label for="fil-cliente-codigo">C&oacute;digo do Cliente</label>

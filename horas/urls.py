@@ -40,6 +40,7 @@ urlpatterns = [
     path('clientes/', views.ClientesView.as_view(), name='clientes'),
     path('clientes/<int:pk>/editar/', views.ClienteUpdateView.as_view(), name='cliente_editar'),
     path('orcamentos/', views.OrcamentosView.as_view(), name='orcamentos'),
+    path('servico-orcamento/', views.ServicoOrcamentoView.as_view(), name='servico_orcamento'),
     path('orcamentos/<int:pk>/editar/', views.OrcamentoUpdateView.as_view(), name='orcamento_editar'),
     path('orcamentos/<int:pk>/remover/', views.OrcamentoDeleteView.as_view(), name='orcamento_remover'),
     path('fases/', views.FasesView.as_view(), name='fases'),

@@ -20,6 +20,7 @@ from .models import (
     Fase,
     FolgaFeriado,
     Orcamento,
+    OrcamentoServico,
     Registro,
     Servico,
     SolicitacaoHoras,
@@ -1414,7 +1415,8 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         self.user.profile.save(update_fields=['is_gerente_projetos'])
         self.pmo_user = User.objects.create_user(username='pmo-user', password='senha-segura')
         self.pmo_user.profile.is_pmo = True
-        self.pmo_user.profile.save(update_fields=['is_pmo'])
+        self.pmo_user.profile.codigoerp = 777
+        self.pmo_user.profile.save(update_fields=['is_pmo', 'codigoerp'])
         self.non_pmo_user = User.objects.create_user(username='non-pmo-user', password='senha-segura')
         for codigo, nome in {
             '200': 'Cliente Teste',
@@ -1521,6 +1523,141 @@ class OrcamentosViewTests(AuthenticatedTestCase):
 
         self.assertContains(response, f'<option value="{self.pmo_user.pk}">pmo-user</option>', html=True)
         self.assertNotContains(response, f'<option value="{self.non_pmo_user.pk}">non-pmo-user</option>', html=True)
+
+    def test_exibe_botao_importar_orcamentos_do_erp(self):
+        response = self.client.get(reverse('horas:orcamentos'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Importar do ERP')
+        self.assertContains(response, 'name="action" value="importar_erp"', html=False)
+        self.assertContains(response, 'id="erp-import-form"', html=False)
+        self.assertContains(response, 'id="erp-import-status"', html=False)
+        self.assertContains(response, 'Processando importação...')
+        self.assertContains(response, "erpImportButton.disabled = true", html=False)
+
+    @patch('horas.views._buscar_orcamentos_erp')
+    def test_importar_orcamentos_do_erp_cria_atualiza_e_rejeita_invalidos(self, buscar_orcamentos_erp):
+        Orcamento.objects.create(
+            codigo='500',
+            codigo_cliente='200',
+            nome_cliente='Cliente Teste',
+            numero_chamado='1',
+            nome='Nome antigo',
+            horas=Decimal('1.00'),
+            horas_apontadas=Decimal('0.00'),
+            responsavel=self.user,
+            pmo=self.user,
+        )
+        buscar_orcamentos_erp.return_value = (
+            [
+                {
+                    'codigo': '500',
+                    'nome': 'Nome atualizado',
+                    'codigo_cliente': '200',
+                    'numero_chamado': '300',
+                    'codigo_responsavel': '777',
+                    'horas': Decimal('12.50'),
+                    'horas_apontadas': Decimal('2.25'),
+                },
+                {
+                    'codigo': '501',
+                    'nome': 'Novo ERP',
+                    'codigo_cliente': '201',
+                    'numero_chamado': '301',
+                    'codigo_responsavel': '777',
+                    'horas': Decimal('8.00'),
+                    'horas_apontadas': Decimal('1.00'),
+                },
+                {
+                    'codigo': '502',
+                    'nome': 'Cliente ausente',
+                    'codigo_cliente': '999',
+                    'numero_chamado': '302',
+                    'codigo_responsavel': '777',
+                    'horas': Decimal('4.00'),
+                    'horas_apontadas': Decimal('0.00'),
+                },
+                {
+                    'codigo': '503',
+                    'nome': 'Usuario ausente',
+                    'codigo_cliente': '200',
+                    'numero_chamado': '303',
+                    'codigo_responsavel': '888',
+                    'horas': Decimal('4.00'),
+                    'horas_apontadas': Decimal('0.00'),
+                },
+            ],
+            [],
+        )
+
+        response = self.client.post(
+            reverse('horas:orcamentos'),
+            data={'action': 'importar_erp'},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Orcamento.objects.count(), 2)
+        atualizado = Orcamento.objects.get(codigo='500')
+        novo = Orcamento.objects.get(codigo='501')
+        self.assertEqual(atualizado.nome, 'Nome atualizado')
+        self.assertEqual(atualizado.codigo_cliente, '200')
+        self.assertEqual(atualizado.nome_cliente, 'Cliente Teste')
+        self.assertEqual(atualizado.numero_chamado, '300')
+        self.assertEqual(atualizado.horas, Decimal('12.50'))
+        self.assertEqual(atualizado.horas_apontadas, Decimal('2.25'))
+        self.assertEqual(atualizado.responsavel, self.pmo_user)
+        self.assertEqual(atualizado.pmo, self.pmo_user)
+        self.assertEqual(novo.nome_cliente, 'Cliente Horas')
+        self.assertContains(response, 'Orçamentos não importados')
+        self.assertContains(response, 'Cliente 999 nao cadastrado.')
+        self.assertContains(response, 'Usuario com codigo ERP 888 nao cadastrado.')
+        self.assertFalse(Orcamento.objects.filter(codigo='502').exists())
+        self.assertFalse(Orcamento.objects.filter(codigo='503').exists())
+
+    @patch('horas.views.ZeepClient')
+    def test_busca_orcamentos_erp_chama_porta_buscar_orcamentos(self, zeep_client):
+        from horas.views import _buscar_orcamentos_erp
+
+        ConfiguracaoSistema.objects.update_or_create(
+            pk=1,
+            defaults={
+                'url_erp': 'http://wsadmteste.magnus.com.br',
+                'usuario_erp': 'usuario-erp',
+                'senha_erp': 'senha-erp',
+                'encryption_erp': 0,
+            },
+        )
+        zeep_client.return_value.service.buscarOrcamentos.return_value = {
+            'orcamentos': [
+                {
+                    'numOrc': '700',
+                    'nomOrc': 'Projeto ERP',
+                    'codCli': '200',
+                    'numCha': '900',
+                    'codRep': '777',
+                    'qtdHrs': '12',
+                    'qtdCon': '1,5',
+                },
+            ],
+        }
+
+        orcamentos, erros = _buscar_orcamentos_erp()
+
+        self.assertEqual(erros, [])
+        self.assertEqual(orcamentos[0]['codigo'], '700')
+        self.assertEqual(orcamentos[0]['nome'], 'Projeto ERP')
+        self.assertEqual(orcamentos[0]['codigo_cliente'], '200')
+        self.assertEqual(orcamentos[0]['numero_chamado'], '900')
+        self.assertEqual(orcamentos[0]['codigo_responsavel'], '777')
+        self.assertEqual(orcamentos[0]['horas'], Decimal('12'))
+        self.assertEqual(orcamentos[0]['horas_apontadas'], Decimal('1.5'))
+        zeep_client.return_value.service.buscarOrcamentos.assert_called_once_with(
+            user='usuario-erp',
+            password='senha-erp',
+            encryption=0,
+            parameters={},
+        )
 
     def test_rejeita_usuario_nao_pmo_no_orcamento(self):
         response = self.client.post(
@@ -2677,6 +2814,72 @@ class ServicosViewTests(AuthenticatedTestCase):
             Servico.objects.filter(codigo='S03', descricao='Parametrização').exists()
         )
 
+    def test_exibe_botao_importar_servicos_do_erp(self):
+        response = self.client.get(reverse('horas:servicos'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Importar do ERP')
+        self.assertContains(response, 'name="action" value="importar_erp"', html=False)
+        self.assertContains(response, 'id="erp-import-form"', html=False)
+        self.assertContains(response, 'id="erp-import-status"', html=False)
+        self.assertContains(response, 'Processando importação...')
+        self.assertContains(response, "erpImportButton.disabled = true", html=False)
+
+    @patch('horas.views._buscar_servicos_erp')
+    def test_importar_servicos_do_erp_cria_e_atualiza_servicos(self, buscar_servicos_erp):
+        Servico.objects.create(codigo='S10', descricao='Descricao antiga')
+        buscar_servicos_erp.return_value = (
+            {
+                'S10': 'Descricao atualizada',
+                'S11': 'Servico novo',
+            },
+            [],
+        )
+
+        response = self.client.post(
+            reverse('horas:servicos'),
+            data={'action': 'importar_erp'},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Importacao do ERP concluida')
+        self.assertEqual(Servico.objects.get(codigo='S10').descricao, 'Descricao atualizada')
+        self.assertTrue(Servico.objects.filter(codigo='S11', descricao='Servico novo').exists())
+
+    @patch('horas.views.ZeepClient')
+    def test_busca_servicos_erp_chama_porta_buscar_servicos(self, zeep_client):
+        from horas.views import _buscar_servicos_erp
+
+        ConfiguracaoSistema.objects.update_or_create(
+            pk=1,
+            defaults={
+                'url_erp': 'http://wsadmteste.magnus.com.br',
+                'usuario_erp': 'usuario-erp',
+                'senha_erp': 'senha-erp',
+                'encryption_erp': 0,
+            },
+        )
+        zeep_client.return_value.service.buscarServicos.return_value = {
+            'servicos': [
+                {
+                    'codSer': 'S20',
+                    'desSer': 'Servico ERP',
+                },
+            ],
+        }
+
+        servicos, erros = _buscar_servicos_erp()
+
+        self.assertEqual(servicos, {'S20': 'Servico ERP'})
+        self.assertEqual(erros, [])
+        zeep_client.return_value.service.buscarServicos.assert_called_once_with(
+            user='usuario-erp',
+            password='senha-erp',
+            encryption=0,
+            parameters={},
+        )
+
     def test_remove_servico(self):
         servico = Servico.objects.create(codigo='S04', descricao='Treinamento')
 
@@ -2720,6 +2923,118 @@ class ServicosViewTests(AuthenticatedTestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertTrue(Servico.objects.filter(pk=servico.pk).exists())
+
+
+class ServicoOrcamentoViewTests(AuthenticatedTestCase):
+    def setUp(self):
+        super().setUp()
+        self.user.profile.is_gerente_projetos = True
+        self.user.profile.save(update_fields=['is_gerente_projetos'])
+        self.orcamento = Orcamento.objects.create(codigo='900', nome='Projeto vinculos')
+        self.outro_orcamento = Orcamento.objects.create(codigo='901', nome='Projeto sem vinculos')
+        self.servico = Servico.objects.create(codigo='S90', descricao='Servico ligado')
+        self.outro_servico = Servico.objects.create(codigo='S91', descricao='Servico solto')
+        OrcamentoServico.objects.create(orcamento=self.orcamento, servico=self.servico)
+
+    def test_menu_servico_orcamento_aparece_para_gp(self):
+        response = self.client.get(reverse('horas:timer'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Serviço x Orc')
+        self.assertContains(response, reverse('horas:servico_orcamento'))
+
+    def test_lista_servicos_do_orcamento_selecionado(self):
+        response = self.client.get(
+            reverse('horas:servico_orcamento'),
+            {'orcamento': self.orcamento.pk},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Servico x Orc')
+        self.assertContains(response, '900 - Projeto vinculos')
+        self.assertContains(response, 'S90')
+        self.assertContains(response, 'Servico ligado')
+        self.assertNotContains(response, 'S91')
+        self.assertContains(response, 'Importar do ERP')
+        self.assertContains(response, 'id="erp-import-form"', html=False)
+        self.assertContains(response, 'Processando importação...')
+
+    def test_orcamento_sem_servicos_exibe_estado_vazio(self):
+        response = self.client.get(
+            reverse('horas:servico_orcamento'),
+            {'orcamento': self.outro_orcamento.pk},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Nenhum servico ligado a este orcamento.')
+
+    def test_usuario_comum_nao_acessa_servico_orcamento(self):
+        self.user.profile.is_gerente_projetos = False
+        self.user.profile.save(update_fields=['is_gerente_projetos'])
+
+        response = self.client.get(reverse('horas:servico_orcamento'))
+
+        self.assertEqual(response.status_code, 403)
+
+    @patch('horas.views._buscar_servicos_orcamentos_erp')
+    def test_importar_erp_cria_ligacoes_e_exibe_rejeicoes(self, buscar_ligacoes_erp):
+        buscar_ligacoes_erp.return_value = (
+            [
+                {'codigo_orcamento': '900', 'codigo_servico': 'S91'},
+                {'codigo_orcamento': '999', 'codigo_servico': 'S90'},
+                {'codigo_orcamento': '900', 'codigo_servico': 'S99'},
+            ],
+            [],
+        )
+
+        response = self.client.post(
+            reverse('horas:servico_orcamento'),
+            data={'orcamento': self.orcamento.pk},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(
+            OrcamentoServico.objects.filter(orcamento=self.orcamento, servico=self.outro_servico).exists()
+        )
+        self.assertContains(response, 'Ligações não atualizadas')
+        self.assertContains(response, '999 / S90')
+        self.assertContains(response, 'Orcamento 999 nao cadastrado.')
+        self.assertContains(response, '900 / S99')
+        self.assertContains(response, 'Servico S99 nao cadastrado.')
+
+    @patch('horas.views.ZeepClient')
+    def test_busca_ligacao_servico_orcamento_chama_porta_erp(self, zeep_client):
+        from horas.views import _buscar_servicos_orcamentos_erp
+
+        ConfiguracaoSistema.objects.update_or_create(
+            pk=1,
+            defaults={
+                'url_erp': 'http://wsadmteste.magnus.com.br',
+                'usuario_erp': 'usuario-erp',
+                'senha_erp': 'senha-erp',
+                'encryption_erp': 0,
+            },
+        )
+        zeep_client.return_value.service.ligacaoServicoOrcamento.return_value = {
+            'ligacoes': [
+                {
+                    'numOrc': '900',
+                    'codSer': 'S90',
+                },
+            ],
+        }
+
+        ligacoes, erros = _buscar_servicos_orcamentos_erp()
+
+        self.assertEqual(erros, [])
+        self.assertEqual(ligacoes, [{'codigo_orcamento': '900', 'codigo_servico': 'S90'}])
+        zeep_client.return_value.service.ligacaoServicoOrcamento.assert_called_once_with(
+            user='usuario-erp',
+            password='senha-erp',
+            encryption=0,
+            parameters={},
+        )
 
 
 class UserProfileTests(TestCase):

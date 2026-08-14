@@ -92,6 +92,55 @@
     <button class="btn btn-primary btn-sm" type="submit">Importar orçamentos</button>
   </form>
 
+  <form method="post" class="add-orc-card" style="margin-bottom:24px;" id="erp-import-form">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="importar_erp">
+    <h3>Importar do ERP</h3>
+    <div class="btn-row">
+      <button class="btn btn-primary btn-sm" type="submit" id="erp-import-button">Importar do ERP</button>
+      <div id="erp-import-status" style="display:none;" role="status" aria-live="polite">
+        <div class="running-badge"><div class="dot"></div> Processando importação...</div>
+      </div>
+    </div>
+  </form>
+
+  {% if erp_import_rejections %}
+    <div class="agenda-modal-backdrop is-open" data-erp-import-modal>
+      <div class="agenda-modal" role="dialog" aria-modal="true" aria-labelledby="erp-import-modal-title">
+        <div class="agenda-modal-header">
+          <div>
+            <h2 class="agenda-modal-title" id="erp-import-modal-title">Orçamentos não importados</h2>
+            <div class="agenda-modal-subtitle">{{ erp_import_rejections|length }} orçamento(s) precisam de ajuste cadastral.</div>
+          </div>
+          <button class="btn btn-ghost agenda-modal-close" type="button" data-erp-import-modal-close aria-label="Fechar">&times;</button>
+        </div>
+        <div class="agenda-modal-body">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Orçamento</th>
+                  <th>Motivo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for item in erp_import_rejections %}
+                  <tr>
+                    <td class="mono accent-text">{{ item.codigo }}</td>
+                    <td>{{ item.motivo }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="agenda-modal-actions">
+            <button class="btn btn-primary" type="button" data-erp-import-modal-close>Fechar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+
   <form method="get" action="{% url 'horas:orcamentos' %}#orcamentos-grid" class="filter-row orcamentos-filter-row">
     <div class="field">
       <label for="fil-orcamento-codigo">Código do Orçamento</label>
@@ -210,6 +259,45 @@
     if (clienteSelect) {
       clienteSelect.addEventListener('change', updateClienteNome);
       updateClienteNome();
+    }
+
+    const erpImportForm = document.getElementById('erp-import-form');
+    const erpImportButton = document.getElementById('erp-import-button');
+    const erpImportStatus = document.getElementById('erp-import-status');
+
+    if (erpImportForm && erpImportButton && erpImportStatus) {
+      erpImportForm.addEventListener('submit', () => {
+        erpImportForm.setAttribute('aria-busy', 'true');
+        erpImportButton.disabled = true;
+        erpImportButton.textContent = 'Processando...';
+        erpImportStatus.style.display = 'inline-flex';
+      });
+    }
+
+    const erpImportModal = document.querySelector('[data-erp-import-modal]');
+    const erpImportModalCloseButtons = document.querySelectorAll('[data-erp-import-modal-close]');
+
+    function closeErpImportModal() {
+      if (!erpImportModal) return;
+      erpImportModal.classList.remove('is-open');
+      erpImportModal.hidden = true;
+    }
+
+    erpImportModalCloseButtons.forEach((button) => {
+      button.addEventListener('click', closeErpImportModal);
+    });
+
+    if (erpImportModal) {
+      erpImportModal.addEventListener('click', (event) => {
+        if (event.target === erpImportModal) {
+          closeErpImportModal();
+        }
+      });
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && !erpImportModal.hidden) {
+          closeErpImportModal();
+        }
+      });
     }
 
     document.querySelectorAll('.numeric-only').forEach((field) => {

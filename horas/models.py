@@ -169,6 +169,27 @@ class Orcamento(models.Model):
             )
 
 
+class OrcamentoServico(models.Model):
+    orcamento = models.ForeignKey(
+        Orcamento,
+        on_delete=models.CASCADE,
+        related_name='servicos_vinculados',
+    )
+    servico = models.ForeignKey(
+        Servico,
+        on_delete=models.PROTECT,
+        related_name='orcamentos_vinculados',
+    )
+    criado_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['orcamento__codigo', 'servico__codigo']
+        unique_together = ('orcamento', 'servico')
+
+    def __str__(self):
+        return f'{self.orcamento.codigo} - {self.servico.codigo}'
+
+
 class UserProfile(models.Model):
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,

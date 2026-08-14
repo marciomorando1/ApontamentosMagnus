@@ -68,6 +68,9 @@
           <a class="nav-item {% if section == 'servicos' %}active{% endif %}" href="{% url 'horas:servicos' %}">
             <span class="nav-icon">S</span> Serviços
           </a>
+          <a class="nav-item {% if section == 'servico_orcamento' %}active{% endif %}" href="{% url 'horas:servico_orcamento' %}">
+            <span class="nav-icon">SO</span> Serviço x Orc
+          </a>
         {% endif %}
         <a class="nav-item {% if section == 'estimativas' %}active{% endif %}" href="{% url 'horas:estimativas' %}">
           <span class="nav-icon">E</span> Estimativas

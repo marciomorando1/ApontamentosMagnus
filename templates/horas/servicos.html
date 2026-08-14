@@ -23,6 +23,23 @@
     <button class="btn btn-primary btn-sm" type="submit">Adicionar</button>
   </form>
 
+  <form method="post" class="add-orc-card" style="margin-bottom:24px;" id="erp-import-form">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="importar_erp">
+    <h3>Importar do ERP</h3>
+    {% if import_errors %}
+      <div class="field-error" style="margin-bottom:12px;">
+        {% for error in import_errors %}<div>{{ error }}</div>{% endfor %}
+      </div>
+    {% endif %}
+    <div class="btn-row">
+      <button class="btn btn-primary btn-sm" type="submit" id="erp-import-button">Importar do ERP</button>
+      <div id="erp-import-status" style="display:none;" role="status" aria-live="polite">
+        <div class="running-badge"><div class="dot"></div> Processando importação...</div>
+      </div>
+    </div>
+  </form>
+
   <div class="orc-grid">
     {% for servico in servicos %}
       <div class="orc-card">
@@ -43,4 +60,21 @@
       <div class="empty-inline">Nenhum serviço cadastrado.</div>
     {% endfor %}
   </div>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const erpImportForm = document.getElementById('erp-import-form');
+    const erpImportButton = document.getElementById('erp-import-button');
+    const erpImportStatus = document.getElementById('erp-import-status');
+
+    if (erpImportForm && erpImportButton && erpImportStatus) {
+      erpImportForm.addEventListener('submit', () => {
+        erpImportForm.setAttribute('aria-busy', 'true');
+        erpImportButton.disabled = true;
+        erpImportButton.textContent = 'Processando...';
+        erpImportStatus.style.display = 'inline-flex';
+      });
+    }
+  </script>
 {% endblock %}

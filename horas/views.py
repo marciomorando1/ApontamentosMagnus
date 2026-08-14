@@ -62,6 +62,7 @@ from .models import (
     Fase,
     FolgaFeriado,
     Orcamento,
+    OrcamentoServico,
     Registro,
     Servico,
     SolicitacaoHoras,
@@ -872,6 +873,39 @@ def _iter_erp_cliente_records(value):
             yield from _iter_erp_cliente_records(child)
 
 
+def _iter_erp_orcamento_records(value):
+    if isinstance(value, dict):
+        if _get_erp_field(value, 'numOrc', 'numorc') is not None:
+            yield value
+        for child in value.values():
+            yield from _iter_erp_orcamento_records(child)
+    elif isinstance(value, (list, tuple)):
+        for child in value:
+            yield from _iter_erp_orcamento_records(child)
+
+
+def _iter_erp_servico_records(value):
+    if isinstance(value, dict):
+        if _get_erp_field(value, 'codSer', 'codser') is not None:
+            yield value
+        for child in value.values():
+            yield from _iter_erp_servico_records(child)
+    elif isinstance(value, (list, tuple)):
+        for child in value:
+            yield from _iter_erp_servico_records(child)
+
+
+def _iter_erp_servico_orcamento_records(value):
+    if isinstance(value, dict):
+        if _get_erp_field(value, 'numOrc', 'numorc') is not None and _get_erp_field(value, 'codSer', 'codser') is not None:
+            yield value
+        for child in value.values():
+            yield from _iter_erp_servico_orcamento_records(child)
+    elif isinstance(value, (list, tuple)):
+        for child in value:
+            yield from _iter_erp_servico_orcamento_records(child)
+
+
 def _extract_clientes_erp_data(response):
     clientes = {}
     errors = []
@@ -956,6 +990,111 @@ def _buscar_clientes_erp():
     return _extract_clientes_erp_data(response)
 
 
+def _buscar_orcamentos_erp():
+    configuracao = ConfiguracaoSistema.objects.first()
+    if not configuracao or not configuracao.usuario_erp or not configuracao.senha_erp:
+        return [], ['Configure URL, usuario e senha do ERP antes de importar orcamentos.']
+
+    session = requests.Session()
+    session.trust_env = False
+    transport = SeniorErpTransport(
+        session=session,
+        timeout=ERP_CLIENTES_TIMEOUT,
+        operation_timeout=ERP_CLIENTES_TIMEOUT,
+        public_base_url=_erp_public_base_url(configuracao),
+    )
+    client = ZeepClient(_erp_wsdl_url(configuracao), transport=transport)
+    response = client.service.buscarOrcamentos(
+        user=configuracao.usuario_erp,
+        password=configuracao.senha_erp,
+        encryption=configuracao.encryption_erp,
+        parameters={},
+    )
+    return _extract_orcamentos_erp_data(response)
+
+
+def _clean_erp_orcamento_hours(value):
+    text = _erp_value_to_text(value)
+    if not text:
+        return Decimal('0')
+    try:
+        return Decimal(text.replace(',', '.'))
+    except InvalidOperation as exc:
+        raise ValueError('horas invalidas') from exc
+
+
+def _extract_orcamentos_erp_data(response):
+    serialized_response = serialize_object(response)
+    erro_execucao = _get_erp_field(serialized_response, 'erroExecucao')
+    if erro_execucao:
+        return [], [f'ERP retornou erro: {_erp_value_to_text(erro_execucao)}']
+
+    orcamentos = []
+    errors = []
+    for record in _iter_erp_orcamento_records(serialized_response):
+        codigo = _erp_value_to_text(_get_erp_field(record, 'numOrc', 'numorc'))
+        nome = _erp_value_to_text(_get_erp_field(record, 'nomOrc', 'nomorc'))
+        codigo_cliente = _erp_value_to_text(_get_erp_field(record, 'codCli', 'codcli'))
+        numero_chamado = _erp_value_to_text(_get_erp_field(record, 'numCha', 'numcha'))
+        codigo_responsavel = _erp_value_to_text(_get_erp_field(record, 'codRep', 'codrep'))
+        try:
+            horas = _clean_erp_orcamento_hours(_get_erp_field(record, 'qtdHrs', 'qtdhrs'))
+            horas_apontadas = _clean_erp_orcamento_hours(_get_erp_field(record, 'qtdCon', 'qtdcon'))
+        except ValueError:
+            orcamentos.append(
+                {
+                    'codigo': codigo,
+                    'nome': nome,
+                    'codigo_cliente': codigo_cliente,
+                    'numero_chamado': numero_chamado,
+                    'codigo_responsavel': codigo_responsavel,
+                    'horas': None,
+                    'horas_apontadas': None,
+                    'erro': 'Quantidade de horas invalida.',
+                }
+            )
+            continue
+        orcamentos.append(
+            {
+                'codigo': codigo,
+                'nome': nome,
+                'codigo_cliente': codigo_cliente,
+                'numero_chamado': numero_chamado,
+                'codigo_responsavel': codigo_responsavel,
+                'horas': horas,
+                'horas_apontadas': horas_apontadas,
+            }
+        )
+
+    if not orcamentos and not errors:
+        errors.append('ERP nao retornou orcamentos para importar.')
+    return orcamentos, errors
+
+
+def _extract_servicos_erp_data(response):
+    servicos = {}
+    errors = []
+    serialized_response = serialize_object(response)
+    erro_execucao = _get_erp_field(serialized_response, 'erroExecucao')
+    if erro_execucao:
+        return {}, [f'ERP retornou erro: {_erp_value_to_text(erro_execucao)}']
+
+    for record in _iter_erp_servico_records(serialized_response):
+        codigo = _erp_value_to_text(_get_erp_field(record, 'codSer', 'codser'))
+        descricao = _erp_value_to_text(_get_erp_field(record, 'desSer', 'desser'))
+        if not codigo:
+            errors.append('ERP retornou um servico sem codigo.')
+            continue
+        if not descricao:
+            errors.append(f'ERP retornou o servico {codigo} sem descricao.')
+            continue
+        servicos[codigo] = descricao
+
+    if not servicos and not errors:
+        errors.append('ERP nao retornou servicos para importar.')
+    return servicos, errors
+
+
 def _salvar_clientes_data(clientes_data, user):
     created_count = 0
     updated_count = 0
@@ -974,6 +1113,200 @@ def _salvar_clientes_data(clientes_data, user):
             else:
                 updated_count += 1
     return created_count, updated_count
+
+
+def _buscar_servicos_erp():
+    configuracao = ConfiguracaoSistema.objects.first()
+    if not configuracao or not configuracao.usuario_erp or not configuracao.senha_erp:
+        return {}, ['Configure URL, usuario e senha do ERP antes de importar servicos.']
+
+    session = requests.Session()
+    session.trust_env = False
+    transport = SeniorErpTransport(
+        session=session,
+        timeout=ERP_CLIENTES_TIMEOUT,
+        operation_timeout=ERP_CLIENTES_TIMEOUT,
+        public_base_url=_erp_public_base_url(configuracao),
+    )
+    client = ZeepClient(_erp_wsdl_url(configuracao), transport=transport)
+    response = client.service.buscarServicos(
+        user=configuracao.usuario_erp,
+        password=configuracao.senha_erp,
+        encryption=configuracao.encryption_erp,
+        parameters={},
+    )
+    return _extract_servicos_erp_data(response)
+
+
+def _buscar_servicos_orcamentos_erp():
+    configuracao = ConfiguracaoSistema.objects.first()
+    if not configuracao or not configuracao.usuario_erp or not configuracao.senha_erp:
+        return [], ['Configure URL, usuario e senha do ERP antes de importar ligacoes de servicos.']
+
+    session = requests.Session()
+    session.trust_env = False
+    transport = SeniorErpTransport(
+        session=session,
+        timeout=ERP_CLIENTES_TIMEOUT,
+        operation_timeout=ERP_CLIENTES_TIMEOUT,
+        public_base_url=_erp_public_base_url(configuracao),
+    )
+    client = ZeepClient(_erp_wsdl_url(configuracao), transport=transport)
+    response = client.service.ligacaoServicoOrcamento(
+        user=configuracao.usuario_erp,
+        password=configuracao.senha_erp,
+        encryption=configuracao.encryption_erp,
+        parameters={},
+    )
+    return _extract_servicos_orcamentos_erp_data(response)
+
+
+def _salvar_servicos_data(servicos_data):
+    created_count = 0
+    updated_count = 0
+    with transaction.atomic():
+        for codigo, descricao in servicos_data.items():
+            _, created = Servico.objects.update_or_create(
+                codigo=codigo,
+                defaults={'descricao': descricao},
+            )
+            if created:
+                created_count += 1
+            else:
+                updated_count += 1
+    return created_count, updated_count
+
+
+def _extract_servicos_orcamentos_erp_data(response):
+    ligacoes = []
+    errors = []
+    serialized_response = serialize_object(response)
+    erro_execucao = _get_erp_field(serialized_response, 'erroExecucao')
+    if erro_execucao:
+        return [], [f'ERP retornou erro: {_erp_value_to_text(erro_execucao)}']
+
+    for record in _iter_erp_servico_orcamento_records(serialized_response):
+        ligacoes.append(
+            {
+                'codigo_orcamento': _erp_value_to_text(_get_erp_field(record, 'numOrc', 'numorc')),
+                'codigo_servico': _erp_value_to_text(_get_erp_field(record, 'codSer', 'codser')),
+            }
+        )
+
+    if not ligacoes and not errors:
+        errors.append('ERP nao retornou ligacoes de servicos para importar.')
+    return ligacoes, errors
+
+
+def _salvar_servicos_orcamentos_erp(ligacoes_data):
+    created_count = 0
+    updated_count = 0
+    rejected = []
+    orcamentos_por_codigo = {orcamento.codigo: orcamento for orcamento in Orcamento.objects.all()}
+    servicos_por_codigo = {servico.codigo: servico for servico in Servico.objects.all()}
+
+    with transaction.atomic():
+        for item in ligacoes_data:
+            codigo_orcamento = item['codigo_orcamento']
+            codigo_servico = item['codigo_servico']
+            motivos = []
+            if not codigo_orcamento:
+                motivos.append('Numero do orcamento nao informado.')
+            if not codigo_servico:
+                motivos.append('Codigo do servico nao informado.')
+
+            orcamento = orcamentos_por_codigo.get(codigo_orcamento)
+            servico = servicos_por_codigo.get(codigo_servico)
+            if codigo_orcamento and not orcamento:
+                motivos.append(f'Orcamento {codigo_orcamento} nao cadastrado.')
+            if codigo_servico and not servico:
+                motivos.append(f'Servico {codigo_servico} nao cadastrado.')
+
+            if motivos:
+                rejected.append(
+                    {
+                        'codigo': f'{codigo_orcamento or "-"} / {codigo_servico or "-"}',
+                        'motivo': ' '.join(motivos),
+                    }
+                )
+                continue
+
+            _, created = OrcamentoServico.objects.get_or_create(orcamento=orcamento, servico=servico)
+            if created:
+                created_count += 1
+            else:
+                updated_count += 1
+
+    return created_count, updated_count, rejected
+
+
+def _salvar_orcamentos_erp(orcamentos_data):
+    created_count = 0
+    updated_count = 0
+    rejected = []
+
+    cliente_por_codigo = {
+        cliente.Codigo_Cliente: cliente
+        for cliente in Cliente.objects.all()
+    }
+    usuarios_por_codigo_erp = {
+        str(profile.codigoerp): profile.user
+        for profile in UserProfile.objects.select_related('user').exclude(codigoerp=0)
+    }
+
+    with transaction.atomic():
+        for item in orcamentos_data:
+            codigo = item['codigo']
+            motivos = []
+            if item.get('erro'):
+                motivos.append(item['erro'])
+            if not codigo:
+                motivos.append('Codigo do orcamento nao informado.')
+            if codigo and not codigo.isdigit():
+                motivos.append('Codigo do orcamento deve conter somente numeros.')
+            if item['codigo_cliente'] and not item['codigo_cliente'].isdigit():
+                motivos.append('Codigo do cliente deve conter somente numeros.')
+            if item['numero_chamado'] and not item['numero_chamado'].isdigit():
+                motivos.append('Numero do chamado deve conter somente numeros.')
+            if item['codigo_responsavel'] and not item['codigo_responsavel'].isdigit():
+                motivos.append('Codigo ERP do responsavel deve conter somente numeros.')
+
+            cliente = cliente_por_codigo.get(item['codigo_cliente'])
+            if not item['codigo_cliente']:
+                motivos.append('Codigo do cliente nao informado.')
+            elif not cliente:
+                motivos.append(f'Cliente {item["codigo_cliente"]} nao cadastrado.')
+
+            responsavel = usuarios_por_codigo_erp.get(item['codigo_responsavel'])
+            if not item['codigo_responsavel']:
+                motivos.append('Codigo ERP do responsavel nao informado.')
+            elif not responsavel:
+                motivos.append(f'Usuario com codigo ERP {item["codigo_responsavel"]} nao cadastrado.')
+
+            if motivos:
+                rejected.append({'codigo': codigo or '-', 'motivo': ' '.join(motivos)})
+                continue
+
+            _, created = Orcamento.objects.update_or_create(
+                codigo=codigo,
+                defaults={
+                    'codigo_cliente': cliente.Codigo_Cliente,
+                    'nome_cliente': cliente.Nome_Cliente,
+                    'numero_chamado': item['numero_chamado'],
+                    'nome': item['nome'],
+                    'horas': item['horas'],
+                    'horas_apontadas': item['horas_apontadas'],
+                    'responsavel': responsavel,
+                    'pmo': responsavel,
+                    'ativo': True,
+                },
+            )
+            if created:
+                created_count += 1
+            else:
+                updated_count += 1
+
+    return created_count, updated_count, rejected
 
 def _validate_orcamentos_import(rows):
     errors = []
@@ -1919,6 +2252,7 @@ class OrcamentosView(
         context['form'] = kwargs.get('form') or OrcamentoForm()
         context['import_form'] = kwargs.get('import_form') or OrcamentoImportForm()
         context['import_errors'] = kwargs.get('import_errors') or []
+        context['erp_import_rejections'] = kwargs.get('erp_import_rejections') or []
         context['orcamentos'] = orcamentos
         context['filtros_orcamentos'] = {
             'codigo': filtro_codigo,
@@ -1927,6 +2261,36 @@ class OrcamentosView(
         return context
 
     def post(self, request, *args, **kwargs):
+        if request.POST.get('action') == 'importar_erp':
+            try:
+                orcamentos_data, import_errors = _buscar_orcamentos_erp()
+            except Exception as exc:
+                logger.exception('Erro ao consultar orcamentos no ERP: %s', exc)
+                messages.error(request, 'Nao foi possivel consultar os orcamentos no ERP. Tente novamente mais tarde.')
+                return redirect('horas:orcamentos')
+
+            if import_errors:
+                messages.error(request, 'ERP retornou dados invalidos e nenhum orcamento foi importado.')
+                return self.render_to_response(self.get_context_data(erp_import_rejections=[
+                    {'codigo': '-', 'motivo': error} for error in import_errors
+                ]))
+
+            created_count, updated_count, rejected = _salvar_orcamentos_erp(orcamentos_data)
+            messages.success(
+                request,
+                (
+                    'Importacao do ERP concluida: '
+                    f'{created_count} orcamento(s) criado(s) e {updated_count} atualizado(s) com sucesso.'
+                ),
+            )
+            if rejected:
+                messages.warning(
+                    request,
+                    f'{len(rejected)} orcamento(s) nao foram importado(s). Consulte os motivos na tela.',
+                )
+                return self.render_to_response(self.get_context_data(erp_import_rejections=rejected))
+            return redirect('horas:orcamentos')
+
         if request.POST.get('action') == 'importar':
             import_form = OrcamentoImportForm(request.POST, request.FILES)
             if import_form.is_valid():
@@ -2023,10 +2387,33 @@ class ServicosView(GerenteProjetosRequiredMixin, AuthenticatedViewMixin, Sidebar
         context = super().get_context_data(**kwargs)
         context['section'] = 'servicos'
         context['form'] = kwargs.get('form') or ServicoForm()
+        context['import_errors'] = kwargs.get('import_errors') or []
         context['servicos'] = Servico.objects.order_by('codigo')
         return context
 
     def post(self, request, *args, **kwargs):
+        if request.POST.get('action') == 'importar_erp':
+            try:
+                servicos_data, import_errors = _buscar_servicos_erp()
+            except Exception as exc:
+                logger.exception('Erro ao consultar servicos no ERP: %s', exc)
+                messages.error(request, 'Nao foi possivel consultar os servicos no ERP. Tente novamente mais tarde.')
+                return redirect('horas:servicos')
+
+            if import_errors:
+                messages.error(request, 'ERP retornou dados invalidos e nenhum servico foi importado.')
+                return self.render_to_response(self.get_context_data(import_errors=import_errors))
+
+            created_count, updated_count = _salvar_servicos_data(servicos_data)
+            messages.success(
+                request,
+                (
+                    'Importacao do ERP concluida: '
+                    f'{created_count} servico(s) criado(s) e {updated_count} atualizado(s) com sucesso.'
+                ),
+            )
+            return redirect('horas:servicos')
+
         form = ServicoForm(request.POST)
         if form.is_valid():
             form.save()
@@ -2035,6 +2422,70 @@ class ServicosView(GerenteProjetosRequiredMixin, AuthenticatedViewMixin, Sidebar
 
         messages.error(request, 'Corrija os campos destacados antes de adicionar o serviÃ§o.')
         return self.render_to_response(self.get_context_data(form=form))
+
+
+class ServicoOrcamentoView(GerenteProjetosRequiredMixin, AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
+    template_name = 'horas/servico_orcamento.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        orcamento_id = (kwargs.get('selected_orcamento_id') or self.request.GET.get('orcamento', '')).strip()
+        orcamentos = Orcamento.objects.filter(ativo=True).order_by('codigo')
+        selected_orcamento = None
+        servicos_vinculados = OrcamentoServico.objects.none()
+        if orcamento_id:
+            selected_orcamento = Orcamento.objects.filter(pk=orcamento_id).first()
+            if selected_orcamento:
+                servicos_vinculados = selected_orcamento.servicos_vinculados.select_related('servico').order_by(
+                    'servico__codigo'
+                )
+        context['section'] = 'servico_orcamento'
+        context['orcamentos'] = orcamentos
+        context['selected_orcamento'] = selected_orcamento
+        context['selected_orcamento_id'] = orcamento_id
+        context['servicos_vinculados'] = servicos_vinculados
+        context['erp_import_rejections'] = kwargs.get('erp_import_rejections') or []
+        return context
+
+    def post(self, request, *args, **kwargs):
+        orcamento_id = request.POST.get('orcamento', '').strip()
+        try:
+            ligacoes_data, import_errors = _buscar_servicos_orcamentos_erp()
+        except Exception as exc:
+            logger.exception('Erro ao consultar ligacoes de servico x orcamento no ERP: %s', exc)
+            messages.error(request, 'Nao foi possivel consultar as ligacoes no ERP. Tente novamente mais tarde.')
+            return redirect('horas:servico_orcamento')
+
+        if import_errors:
+            messages.error(request, 'ERP retornou dados invalidos e nenhuma ligacao foi importada.')
+            return self.render_to_response(
+                self.get_context_data(
+                    selected_orcamento_id=orcamento_id,
+                    erp_import_rejections=[{'codigo': '-', 'motivo': error} for error in import_errors]
+                )
+            )
+
+        created_count, updated_count, rejected = _salvar_servicos_orcamentos_erp(ligacoes_data)
+        messages.success(
+            request,
+            (
+                'Importacao do ERP concluida: '
+                f'{created_count} ligacao(oes) criada(s) e {updated_count} atualizada(s) com sucesso.'
+            ),
+        )
+        if rejected:
+            messages.warning(
+                request,
+                f'{len(rejected)} ligacao(oes) nao foram atualizada(s). Consulte os motivos na tela.',
+            )
+            return self.render_to_response(
+                self.get_context_data(selected_orcamento_id=orcamento_id, erp_import_rejections=rejected)
+            )
+
+        url = reverse('horas:servico_orcamento')
+        if orcamento_id:
+            url = f'{url}?{urlencode({"orcamento": orcamento_id})}'
+        return redirect(url)
 
 
 class OrcamentoDeleteView(GerenteProjetosRequiredMixin, AuthenticatedViewMixin, View):

@@ -366,6 +366,15 @@ nav { padding: 12px 0; flex: 1; }
 }
 .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: pulse 1.2s ease infinite; }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+.agenda-modal-backdrop { position: fixed; inset: 0; z-index: 60; display: none; align-items: center; justify-content: center; padding: 24px; background: rgba(0, 0, 0, 0.52); }
+.agenda-modal-backdrop.is-open { display: flex; }
+.agenda-modal { width: min(920px, 100%); max-height: min(86vh, 820px); overflow: auto; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: var(--popover-shadow); }
+.agenda-modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 20px 22px 14px; border-bottom: 1px solid var(--border); }
+.agenda-modal-title { margin: 0; font-size: 22px; font-weight: 600; color: var(--text); line-height: 1.2; }
+.agenda-modal-subtitle { margin-top: 4px; color: var(--muted); font-size: 12px; }
+.agenda-modal-close { min-width: 34px; min-height: 34px; padding: 0; border-radius: 8px; }
+.agenda-modal-body { padding: 18px 22px 22px; }
+.agenda-modal-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
 .filter-row { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: flex-end; }
 .filter-row .field { flex: 1; min-width: 150px; }
 .table-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid var(--border); }

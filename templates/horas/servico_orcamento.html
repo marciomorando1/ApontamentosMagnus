@@ -1,0 +1,146 @@
+{% extends 'base.html' %}
+
+{% block title %}Servico x Orc | Apontamento de Horas{% endblock %}
+
+{% block content %}
+  <div class="page-title">Servico x Orc</div>
+
+  <form method="get" class="add-orc-card" style="margin-bottom:24px;">
+    <h3>Selecionar orcamento</h3>
+    <div class="form-row single">
+      <div class="field">
+        <label for="servico-orcamento-select">Orcamento</label>
+        <select id="servico-orcamento-select" name="orcamento">
+          <option value="">Selecione um orcamento</option>
+          {% for orcamento in orcamentos %}
+            <option value="{{ orcamento.pk }}" {% if selected_orcamento_id == orcamento.pk|stringformat:'s' %}selected{% endif %}>
+              {{ orcamento.codigo }}{% if orcamento.nome %} - {{ orcamento.nome }}{% endif %}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <button class="btn btn-primary btn-sm" type="submit">Buscar</button>
+  </form>
+
+  <div class="timer-card">
+    <h3>Servicos ligados</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Codigo do Servico</th>
+            <th>Descricao</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if selected_orcamento %}
+            {% for vinculo in servicos_vinculados %}
+              <tr>
+                <td class="mono accent-text">{{ vinculo.servico.codigo }}</td>
+                <td>{{ vinculo.servico.descricao }}</td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="2"><div class="empty-inline">Nenhum servico ligado a este orcamento.</div></td>
+              </tr>
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td colspan="2"><div class="empty-inline">Selecione um orcamento para listar os servicos.</div></td>
+            </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+
+    <form method="post" id="erp-import-form" class="btn-row">
+      {% csrf_token %}
+      <input type="hidden" name="orcamento" value="{{ selected_orcamento_id }}">
+      <button class="btn btn-primary btn-sm" type="submit" id="erp-import-button">Importar do ERP</button>
+      <div id="erp-import-status" style="display:none;" role="status" aria-live="polite">
+        <div class="running-badge"><div class="dot"></div> Processando importação...</div>
+      </div>
+    </form>
+  </div>
+
+  {% if erp_import_rejections %}
+    <div class="agenda-modal-backdrop is-open" data-erp-import-modal>
+      <div class="agenda-modal" role="dialog" aria-modal="true" aria-labelledby="erp-import-modal-title">
+        <div class="agenda-modal-header">
+          <div>
+            <h2 class="agenda-modal-title" id="erp-import-modal-title">Ligações não atualizadas</h2>
+            <div class="agenda-modal-subtitle">{{ erp_import_rejections|length }} ligação(ões) precisam de ajuste cadastral.</div>
+          </div>
+          <button class="btn btn-ghost agenda-modal-close" type="button" data-erp-import-modal-close aria-label="Fechar">&times;</button>
+        </div>
+        <div class="agenda-modal-body">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Orçamento / Serviço</th>
+                  <th>Motivo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for item in erp_import_rejections %}
+                  <tr>
+                    <td class="mono accent-text">{{ item.codigo }}</td>
+                    <td>{{ item.motivo }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="agenda-modal-actions">
+            <button class="btn btn-primary" type="button" data-erp-import-modal-close>Fechar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const erpImportForm = document.getElementById('erp-import-form');
+    const erpImportButton = document.getElementById('erp-import-button');
+    const erpImportStatus = document.getElementById('erp-import-status');
+
+    if (erpImportForm && erpImportButton && erpImportStatus) {
+      erpImportForm.addEventListener('submit', () => {
+        erpImportForm.setAttribute('aria-busy', 'true');
+        erpImportButton.disabled = true;
+        erpImportButton.textContent = 'Processando...';
+        erpImportStatus.style.display = 'inline-flex';
+      });
+    }
+
+    const erpImportModal = document.querySelector('[data-erp-import-modal]');
+    const erpImportModalCloseButtons = document.querySelectorAll('[data-erp-import-modal-close]');
+
+    function closeErpImportModal() {
+      if (!erpImportModal) return;
+      erpImportModal.classList.remove('is-open');
+      erpImportModal.hidden = true;
+    }
+
+    erpImportModalCloseButtons.forEach((button) => {
+      button.addEventListener('click', closeErpImportModal);
+    });
+
+    if (erpImportModal) {
+      erpImportModal.addEventListener('click', (event) => {
+        if (event.target === erpImportModal) {
+          closeErpImportModal();
+        }
+      });
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && !erpImportModal.hidden) {
+          closeErpImportModal();
+        }
+      });
+    }
+  </script>
+{% endblock %}

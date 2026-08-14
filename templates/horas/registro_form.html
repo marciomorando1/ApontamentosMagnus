@@ -97,9 +97,25 @@
       budgetAvailableHoursField.value = selectedOption?.dataset.horasDisponiveis || '';
     }
 
+    function bindNoLineBreakTextareas(root = document) {
+      root.querySelectorAll('textarea[data-no-linebreak]').forEach((field) => {
+        if (field.dataset.noLineBreakBound) return;
+        field.dataset.noLineBreakBound = 'true';
+        field.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+          }
+        });
+        field.addEventListener('input', () => {
+          field.value = field.value.replace(/[\r\n]+/g, ' ');
+        });
+      });
+    }
+
     startField.addEventListener('change', updateTotal);
     endField.addEventListener('change', updateTotal);
     budgetField.addEventListener('change', updateBudgetHours);
+    bindNoLineBreakTextareas();
     updateTotal();
     updateBudgetHours();
   </script>

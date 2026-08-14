@@ -96,7 +96,7 @@
           <div class="form-row single">
             <div class="field">
               <label>Descrição da atividade</label>
-              <textarea name="extra_descricao" maxlength="{{ descricao_max_length }}">{{ row.descricao }}</textarea>
+              <textarea name="extra_descricao" maxlength="{{ descricao_max_length }}" data-no-linebreak="true">{{ row.descricao }}</textarea>
             </div>
           </div>
         </div>
@@ -132,7 +132,7 @@
       <div class="form-row single">
         <div class="field">
           <label>Descrição da atividade</label>
-          <textarea name="extra_descricao" maxlength="{{ descricao_max_length }}"></textarea>
+          <textarea name="extra_descricao" maxlength="{{ descricao_max_length }}" data-no-linebreak="true"></textarea>
         </div>
       </div>
     </div>
@@ -200,6 +200,21 @@
       budgetAvailableHoursField.value = selectedOption?.dataset.horasDisponiveis || '';
     }
 
+    function bindNoLineBreakTextareas(root = document) {
+      root.querySelectorAll('textarea[data-no-linebreak]').forEach((field) => {
+        if (field.dataset.noLineBreakBound) return;
+        field.dataset.noLineBreakBound = 'true';
+        field.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+          }
+        });
+        field.addEventListener('input', () => {
+          field.value = field.value.replace(/[\r\n]+/g, ' ');
+        });
+      });
+    }
+
     function tickTimer() {
       const elapsed = Math.floor((Date.now() - timerStart) / 1000);
       const hours = String(Math.floor(elapsed / 3600)).padStart(2, '0');
@@ -240,6 +255,7 @@
 
     function appendManualRow() {
       manualRows.appendChild(manualRowTemplate.content.cloneNode(true));
+      bindNoLineBreakTextareas(manualRows);
     }
 
     timerButton.addEventListener('click', () => {
@@ -266,6 +282,7 @@
     if (!dateField.value) {
       dateField.value = nowDateValue();
     }
+    bindNoLineBreakTextareas();
     updateTotal();
     updateBudgetHours();
   </script>

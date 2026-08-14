@@ -225,6 +225,7 @@ class RegistroForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['descricao'].widget.attrs['maxlength'] = REGISTRO_DESCRICAO_MAX_LENGTH
+        self.fields['descricao'].widget.attrs['data-no-linebreak'] = 'true'
         if not self.is_bound and not self.instance.pk:
             self.fields['data'].initial = date.today()
         queryset = Orcamento.objects.filter(ativo=True)
@@ -242,7 +243,7 @@ class RegistroForm(forms.ModelForm):
         self.fields['servico'].empty_label = '— selecione —'
 
     def clean_descricao(self):
-        descricao = self.cleaned_data['descricao'].strip()
+        descricao = ' '.join(self.cleaned_data['descricao'].splitlines()).strip()
         if len(descricao) > REGISTRO_DESCRICAO_MAX_LENGTH:
             raise forms.ValidationError(
                 f'A descricao deve ter no maximo {REGISTRO_DESCRICAO_MAX_LENGTH} caracteres.'

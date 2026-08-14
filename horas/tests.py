@@ -220,6 +220,24 @@ class TimerViewTests(AuthenticatedTestCase):
         self.assertEqual(Registro.objects.count(), 1)
         self.assertEqual(Registro.objects.get().user, self.user)
 
+    def test_apontamento_remove_quebras_de_linha_da_descricao(self):
+        response = self.client.post(
+            reverse('horas:timer'),
+            data={
+                'submission_mode': 'timer',
+                'data': date.today().isoformat(),
+                'orcamento': self.orcamento.pk,
+                'fase': self.fase.pk,
+                'servico': self.servico.pk,
+                'hora_inicio': '08:00',
+                'hora_fim': '09:30',
+                'descricao': 'Primeira linha\nSegunda linha',
+            },
+        )
+
+        self.assertRedirects(response, reverse('horas:timer'), fetch_redirect_response=False)
+        self.assertEqual(Registro.objects.get().descricao, 'Primeira linha Segunda linha')
+
     def test_nao_cria_registro_timer_com_descricao_acima_do_limite(self):
         response = self.client.post(
             reverse('horas:timer'),
@@ -261,6 +279,13 @@ class TimerViewTests(AuthenticatedTestCase):
         )
         self.assertContains(response, 'data-horas-apontadas="00:00"', html=False)
         self.assertContains(response, 'data-horas-disponiveis="20:30"', html=False)
+
+    def test_timer_bloqueia_quebra_de_linha_na_descricao(self):
+        response = self.client.get(reverse('horas:timer'))
+
+        self.assertContains(response, 'data-no-linebreak="true"', html=False)
+        self.assertContains(response, "event.key === 'Enter'", html=False)
+        self.assertContains(response, r"replace(/[\r\n]+/g, ' ')", html=False)
 
     def test_abre_apontamento_com_servico_preenchido(self):
         response = self.client.get(

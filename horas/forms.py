@@ -223,6 +223,7 @@ class RegistroForm(forms.ModelForm):
         }
 
     def __init__(self, *args, **kwargs):
+        restrict_servicos_by_orcamento = kwargs.pop('restrict_servicos_by_orcamento', False)
         super().__init__(*args, **kwargs)
         self.fields['descricao'].widget.attrs['maxlength'] = REGISTRO_DESCRICAO_MAX_LENGTH
         self.fields['descricao'].widget.attrs['data-no-linebreak'] = 'true'
@@ -230,6 +231,8 @@ class RegistroForm(forms.ModelForm):
             self.fields['data'].initial = date.today()
         queryset = Orcamento.objects.filter(ativo=True)
         selected_orcamento_id = self.instance.orcamento_id if self.instance.pk else self.initial.get('orcamento')
+        if self.is_bound:
+            selected_orcamento_id = self.data.get(self.add_prefix('orcamento'))
         if selected_orcamento_id:
             queryset = Orcamento.objects.filter(Q(ativo=True) | Q(pk=selected_orcamento_id))
         self.fields['orcamento'].queryset = queryset.order_by('codigo')
@@ -239,7 +242,15 @@ class RegistroForm(forms.ModelForm):
         self.fields['fase'].empty_label = '— selecione —'
         self.fields['fase'].required = False
 
-        self.fields['servico'].queryset = Servico.objects.order_by('codigo')
+        if restrict_servicos_by_orcamento:
+            servico_queryset = Servico.objects.none()
+            if selected_orcamento_id:
+                servico_queryset = Servico.objects.filter(
+                    orcamentos_vinculados__orcamento_id=selected_orcamento_id
+                ).distinct()
+        else:
+            servico_queryset = Servico.objects.order_by('codigo')
+        self.fields['servico'].queryset = servico_queryset.order_by('codigo')
         self.fields['servico'].empty_label = '— selecione —'
 
     def clean_descricao(self):

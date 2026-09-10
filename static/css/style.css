@@ -882,6 +882,16 @@ tr.processed-row .desc {
   max-width: 960px;
 }
 .toast-stack { position: fixed; right: 24px; bottom: 24px; display: flex; flex-direction: column; gap: 10px; z-index: 999; pointer-events: none; }
+.toast-stack.has-modal-toast {
+  inset: 0;
+  right: 0;
+  bottom: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(8, 17, 31, 0.24);
+  pointer-events: auto;
+}
 .toast {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -890,14 +900,65 @@ tr.processed-row .desc {
   padding: 12px 18px;
   font-size: 13px;
   color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(640px, calc(100vw - 48px));
   transform: translateY(80px);
   opacity: 0;
   transition: all 0.25s;
-  pointer-events: none;
+  pointer-events: auto;
 }
+.toast-message { line-height: 1.45; overflow-wrap: anywhere; }
+.toast-ok { flex: 0 0 auto; }
 .toast.show { transform: translateY(0); opacity: 1; }
+.toast.timer-erp-return {
+  width: min(680px, calc(100vw - 32px));
+  min-height: 118px;
+  align-items: center;
+  transform: translateY(18px);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.32);
+}
+.toast.timer-erp-return.show { transform: translateY(0); }
+.toast.timer-erp-return .toast-message { flex: 1 1 auto; font-size: 14px; }
 .toast-error { border-left-color: var(--danger); }
 .toast-warning { border-left-color: #f5c542; }
+.timer-erp-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(8, 17, 31, 0.36);
+}
+.timer-erp-modal {
+  width: min(680px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  border-radius: 8px;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.36);
+  padding: 22px 24px;
+}
+.timer-erp-modal-error { border-left-color: var(--danger); }
+.timer-erp-modal h2 {
+  margin: 0 0 12px;
+  font-size: 18px;
+  font-weight: 600;
+}
+.timer-erp-modal-message {
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.timer-erp-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
 .muted-inline { color: var(--muted); }
 .empty-inline { color: var(--muted); font-size: 13px; }
 .auth-shell {

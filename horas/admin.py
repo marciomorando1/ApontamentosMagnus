@@ -14,6 +14,7 @@ User = get_user_model()
 class UserCreationWithProfileForm(AdminUserCreationForm):
     codigoerp = forms.IntegerField(label='Código ERP', min_value=0, required=True)
     is_administrador = forms.BooleanField(label='Administrador', required=False)
+    envia_erp = forms.BooleanField(label='envia_erp', required=False)
 
     class Meta(AdminUserCreationForm.Meta):
         model = User
@@ -24,13 +25,13 @@ class UserProfileInline(admin.StackedInline):
     can_delete = False
     extra = 0
     fk_name = 'user'
-    fields = ('codigoerp', 'is_gerente_projetos', 'is_administrador', 'is_pmo', 'exportacsv', 'must_change_password')
+    fields = ('codigoerp', 'is_gerente_projetos', 'is_administrador', 'is_pmo', 'exportacsv', 'envia_erp', 'must_change_password')
 
 
 class UserAdmin(DjangoUserAdmin):
     add_form = UserCreationWithProfileForm
     add_fieldsets = DjangoUserAdmin.add_fieldsets + (
-        (None, {'fields': ('codigoerp', 'is_administrador')}),
+        (None, {'fields': ('codigoerp', 'is_administrador', 'envia_erp')}),
     )
     inlines = (UserProfileInline,)
 
@@ -45,7 +46,8 @@ class UserAdmin(DjangoUserAdmin):
             profile, _ = UserProfile.objects.get_or_create(user=obj)
             profile.codigoerp = form.cleaned_data['codigoerp']
             profile.is_administrador = form.cleaned_data.get('is_administrador', False)
-            profile.save(update_fields=['codigoerp', 'is_administrador'])
+            profile.envia_erp = form.cleaned_data.get('envia_erp', False)
+            profile.save(update_fields=['codigoerp', 'is_administrador', 'envia_erp'])
 
 
 try:
@@ -177,8 +179,8 @@ class SolicitacaoHorasAdmin(admin.ModelAdmin):
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
-    list_display = ('user', 'codigoerp', 'is_gerente_projetos', 'is_administrador', 'is_pmo', 'exportacsv', 'must_change_password')
-    list_filter = ('is_gerente_projetos', 'is_administrador', 'is_pmo', 'exportacsv', 'must_change_password')
+    list_display = ('user', 'codigoerp', 'is_gerente_projetos', 'is_administrador', 'is_pmo', 'exportacsv', 'envia_erp', 'must_change_password')
+    list_filter = ('is_gerente_projetos', 'is_administrador', 'is_pmo', 'exportacsv', 'envia_erp', 'must_change_password')
     search_fields = ('user__username', 'codigoerp')
 
 

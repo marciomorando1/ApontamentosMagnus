@@ -9,6 +9,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from pathlib import Path
+from pprint import pformat
 from urllib.parse import urlparse, urlencode, urlunparse
 from xml.etree import ElementTree as ET
 
@@ -76,11 +77,14 @@ ET.register_namespace('', XLSX_NS)
 ET.register_namespace('r', REL_NS)
 User = get_user_model()
 logger = logging.getLogger(__name__)
-ERP_CLIENTES_WSDL_URL = 'http://wsadmteste.magnus.com.br/g5-senior-services/sapiens_Synccom_magnus_rat?wsdl'
+ERP_CLIENTES_WSDL_URL = 'https://wsadmin.magnus.com.br/g5-senior-services/sapiens_Synccom_magnus_agenda?wsdl'
 ERP_CLIENTES_TIMEOUT = 30
 ERP_CLIENTES_INTERNAL_BASE_URL = 'http://srvsnr01:8088'
-ERP_CLIENTES_PUBLIC_BASE_URL = 'http://wsadmteste.magnus.com.br:8088'
-ERP_CLIENTES_SERVICE_PATH = '/g5-senior-services/sapiens_Synccom_magnus_rat'
+ERP_CLIENTES_PUBLIC_BASE_URL = 'https://wsadmin.magnus.com.br'
+ERP_CLIENTES_SERVICE_PATH = '/g5-senior-services/sapiens_Synccom_magnus_agenda'
+ERP_CLIENTES_PUBLIC_HOST = 'wsadmin.magnus.com.br'
+ERP_MODAL_MESSAGE_TAG = 'erp-modal-return'
+TIMER_ERP_MESSAGE_TAG = ERP_MODAL_MESSAGE_TAG
 MONTH_LABELS = [
     '',
     'Janeiro',
@@ -120,6 +124,40 @@ def _build_timer_rows_from_post(request):
             }
         )
     return rows
+
+
+def _build_registro_forms_from_timer_post(request):
+    rows = _build_timer_rows_from_post(request)
+    common_data = {
+        'data': request.POST.get('data', ''),
+        'orcamento': request.POST.get('orcamento', ''),
+        'fase': request.POST.get('fase', ''),
+        'servico': request.POST.get('servico', ''),
+    }
+    return [
+        RegistroForm(
+            {
+                **common_data,
+                'hora_inicio': row['hora_inicio'],
+                'hora_fim': row['hora_fim'],
+                'descricao': row['descricao'],
+            },
+            restrict_servicos_by_orcamento=True,
+        )
+        for row in rows
+    ]
+
+
+def _save_registro_forms(row_forms, user, *, processado=Registro.PROCESSADO_NAO):
+    with transaction.atomic():
+        registros = []
+        for form in row_forms:
+            registro = form.save(commit=False)
+            registro.user = user
+            registro.processado = processado
+            registro.save()
+            registros.append(registro)
+    return registros
 
 
 def _add_model_validation_to_form(form, error):
@@ -862,6 +900,13 @@ def _get_erp_field(record, *field_names):
     return None
 
 
+def _log_erp_payload(porta, payload):
+    safe_payload = dict(payload)
+    if 'password' in safe_payload:
+        safe_payload['password'] = '***'
+    logger.warning('Campos enviados ao ERP na porta %s:\n%s', porta, pformat(safe_payload, width=120))
+
+
 def _iter_erp_cliente_records(value):
     if isinstance(value, dict):
         if _get_erp_field(value, 'codcli', 'codCli') is not None and _get_erp_field(value, 'nomCli', 'nomcli') is not None:
@@ -906,6 +951,17 @@ def _iter_erp_servico_orcamento_records(value):
             yield from _iter_erp_servico_orcamento_records(child)
 
 
+def _iter_erp_pedido_records(value):
+    if isinstance(value, dict):
+        if any(_get_erp_field(value, field) is not None for field in ('CodEmp', 'CodFil', 'NumPed', 'MsgRet')):
+            yield value
+        for child in value.values():
+            yield from _iter_erp_pedido_records(child)
+    elif isinstance(value, (list, tuple)):
+        for child in value:
+            yield from _iter_erp_pedido_records(child)
+
+
 def _extract_clientes_erp_data(response):
     clientes = {}
     errors = []
@@ -936,6 +992,7 @@ def _erp_wsdl_url(configuracao):
     base_url = (configuracao.url_erp if configuracao else ERP_CLIENTES_WSDL_URL).rstrip('/')
     if base_url.endswith('?wsdl'):
         return base_url
+    parsed = urlparse(base_url)
     return f'{base_url}{ERP_CLIENTES_SERVICE_PATH}?wsdl'
 
 
@@ -944,6 +1001,12 @@ def _erp_public_base_url(configuracao):
     if not base_url:
         return ERP_CLIENTES_PUBLIC_BASE_URL
     parsed = urlparse(base_url)
+    if base_url.endswith('?wsdl'):
+        return urlunparse((parsed.scheme or 'http', parsed.netloc, '', '', '', ''))
+    if (parsed.hostname or '').lower() == ERP_CLIENTES_PUBLIC_HOST:
+        return base_url
+    if (parsed.hostname or '').lower() == urlparse(ERP_CLIENTES_INTERNAL_BASE_URL).hostname:
+        return base_url
     netloc = parsed.hostname or parsed.netloc
     if parsed.username or parsed.password:
         netloc = parsed.netloc.rsplit('@', 1)[-1]
@@ -973,7 +1036,6 @@ def _buscar_clientes_erp():
         return {}, ['Configure URL, usuario e senha do ERP antes de importar clientes.']
 
     session = requests.Session()
-    session.trust_env = False
     transport = SeniorErpTransport(
         session=session,
         timeout=ERP_CLIENTES_TIMEOUT,
@@ -996,7 +1058,6 @@ def _buscar_orcamentos_erp():
         return [], ['Configure URL, usuario e senha do ERP antes de importar orcamentos.']
 
     session = requests.Session()
-    session.trust_env = False
     transport = SeniorErpTransport(
         session=session,
         timeout=ERP_CLIENTES_TIMEOUT,
@@ -1011,6 +1072,245 @@ def _buscar_orcamentos_erp():
         parameters={},
     )
     return _extract_orcamentos_erp_data(response)
+
+
+def _extract_pedido_erp_data(response):
+    serialized_response = serialize_object(response)
+    erro_execucao = _get_erp_field(serialized_response, 'erroExecucao')
+    if erro_execucao:
+        return None, [f'ERP retornou erro: {_erp_value_to_text(erro_execucao)}']
+
+    for record in _iter_erp_pedido_records(serialized_response):
+        return {
+            'cod_emp': _erp_value_to_text(_get_erp_field(record, 'CodEmp', 'codEmp', 'codemp')),
+            'cod_fil': _erp_value_to_text(_get_erp_field(record, 'CodFil', 'codFil', 'codfil')),
+            'num_ped': _erp_value_to_text(_get_erp_field(record, 'NumPed', 'numPed', 'numped')),
+            'msg_ret': _erp_value_to_text(_get_erp_field(record, 'MsgRet', 'msgRet', 'msgret')),
+        }, []
+
+    return None, ['ERP nao retornou dados da geracao do pedido.']
+
+
+def _extract_adiciona_servico_erp_data(response):
+    serialized_response = serialize_object(response)
+    erro_execucao = _get_erp_field(serialized_response, 'erroExecucao')
+    if erro_execucao:
+        return '', [f'ERP retornou erro: {_erp_value_to_text(erro_execucao)}']
+    return _erp_value_to_text(_get_erp_field(serialized_response, 'MsgRet', 'msgRet', 'msgret', 'mstRet')), []
+
+
+def _time_text_to_minutes(value):
+    try:
+        hours_text, minutes_text = value.split(':', 1)
+        hours = int(hours_text)
+        minutes = int(minutes_text)
+    except (AttributeError, TypeError, ValueError):
+        return None
+    if hours < 0 or minutes < 0 or minutes > 59:
+        return None
+    return (hours * 60) + minutes
+
+
+def _date_to_erp_text(value):
+    if hasattr(value, 'strftime'):
+        return value.strftime('%d/%m/%Y')
+    parsed_value = _parse_date(value)
+    return parsed_value.strftime('%d/%m/%Y') if parsed_value else ''
+
+
+def _time_to_minutes(value):
+    if hasattr(value, 'hour') and hasattr(value, 'minute'):
+        return (value.hour * 60) + value.minute
+    return _time_text_to_minutes(value)
+
+
+def _build_erp_servico_items(request, orcamento):
+    errors = []
+    data_apontamento = request.POST.get('data', '').strip()
+    data_erp = ''
+    servico_id = request.POST.get('servico', '').strip()
+
+    if not data_apontamento:
+        errors.append('Informe a data do apontamento antes de enviar ao ERP.')
+    else:
+        parsed_data_apontamento = _parse_date(data_apontamento)
+        if parsed_data_apontamento:
+            data_erp = parsed_data_apontamento.strftime('%d/%m/%Y')
+        else:
+            errors.append('Informe uma data válida antes de enviar ao ERP.')
+    if not servico_id:
+        errors.append('Selecione um serviço antes de enviar ao ERP.')
+
+    try:
+        servico = Servico.objects.get(pk=servico_id) if servico_id else None
+    except (Servico.DoesNotExist, ValueError):
+        servico = None
+        errors.append('Selecione um serviço válido antes de enviar ao ERP.')
+
+    if not orcamento.numero_chamado:
+        errors.append('Informe o numero do chamado do orçamento antes de enviar ao ERP.')
+    elif not orcamento.numero_chamado.isdigit():
+        errors.append('O numero do chamado do orçamento deve conter somente numeros para enviar ao ERP.')
+
+    rows = _build_timer_rows_from_post(request)
+    items = []
+    for index, row in enumerate(rows, start=1):
+        if not row['hora_inicio'] or not row['hora_fim'] or not row['descricao']:
+            errors.append(f'Preencha hora início, hora fim e descrição do apontamento {index} antes de enviar ao ERP.')
+            continue
+        hora_inicio = _time_text_to_minutes(row['hora_inicio'])
+        hora_fim = _time_text_to_minutes(row['hora_fim'])
+        if hora_inicio is None or hora_fim is None:
+            errors.append(f'Informe horas válidas no apontamento {index} antes de enviar ao ERP.')
+            continue
+        if servico and data_erp and orcamento.numero_chamado and orcamento.numero_chamado.isdigit():
+            items.append(
+                {
+                    'seqIsp': index,
+                    'codSer': servico.codigo,
+                    'datSer': data_erp,
+                    'horIni': hora_inicio,
+                    'horFim': hora_fim,
+                    'desSer': row['descricao'],
+                    'numCha': int(orcamento.numero_chamado),
+                    'qtdPed': '1',
+                }
+            )
+
+    return items, errors
+
+
+def _build_erp_servico_items_from_registros(registros):
+    errors = []
+    items = []
+    registros = list(registros)
+    if not registros:
+        return [], ['Nenhum apontamento informado para enviar ao ERP.']
+
+    orcamento = registros[0].orcamento
+    if not orcamento.numero_chamado:
+        errors.append('Informe o numero do chamado do orçamento antes de enviar ao ERP.')
+    elif not orcamento.numero_chamado.isdigit():
+        errors.append('O numero do chamado do orçamento deve conter somente numeros para enviar ao ERP.')
+
+    for index, registro in enumerate(registros, start=1):
+        data_erp = _date_to_erp_text(registro.data)
+        hora_inicio = _time_to_minutes(registro.hora_inicio)
+        hora_fim = _time_to_minutes(registro.hora_fim)
+        if not registro.servico_id:
+            errors.append(f'Selecione um serviço no apontamento {index} antes de enviar ao ERP.')
+            continue
+        if not data_erp:
+            errors.append(f'Informe uma data válida no apontamento {index} antes de enviar ao ERP.')
+            continue
+        if hora_inicio is None or hora_fim is None:
+            errors.append(f'Informe horas válidas no apontamento {index} antes de enviar ao ERP.')
+            continue
+        if not registro.descricao:
+            errors.append(f'Preencha a descrição do apontamento {index} antes de enviar ao ERP.')
+            continue
+        if orcamento.numero_chamado and orcamento.numero_chamado.isdigit():
+            items.append(
+                {
+                    'seqIsp': index,
+                    'codSer': registro.servico.codigo,
+                    'datSer': data_erp,
+                    'horIni': hora_inicio,
+                    'horFim': hora_fim,
+                    'desSer': registro.descricao,
+                    'numCha': int(orcamento.numero_chamado),
+                    'qtdPed': '1',
+                }
+            )
+
+    return items, errors
+
+
+def _gerar_pedido_erp(orcamento, user):
+    configuracao = ConfiguracaoSistema.objects.first()
+    if not configuracao or not configuracao.usuario_erp or not configuracao.senha_erp:
+        return None, ['Configure URL, usuario e senha do ERP antes de enviar ao ERP.']
+
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+    if not profile.codigoerp:
+        return None, ['Configure o codigo ERP do usuario antes de enviar ao ERP.']
+
+    session = requests.Session()
+    transport = SeniorErpTransport(
+        session=session,
+        timeout=ERP_CLIENTES_TIMEOUT,
+        operation_timeout=ERP_CLIENTES_TIMEOUT,
+        public_base_url=_erp_public_base_url(configuracao),
+    )
+    client = ZeepClient(_erp_wsdl_url(configuracao), transport=transport)
+    payload = {
+        'user': configuracao.usuario_erp,
+        'password': configuracao.senha_erp,
+        'encryption': configuracao.encryption_erp,
+        'parameters': {
+            'numOrc': int(orcamento.codigo),
+            'codRep': int(profile.codigoerp),
+        },
+    }
+    _log_erp_payload('novo', payload)
+    response = client.service.novo(**payload)
+    return _extract_pedido_erp_data(response)
+
+
+def _adicionar_servicos_pedido_erp(pedido, servicos):
+    configuracao = ConfiguracaoSistema.objects.first()
+    if not configuracao or not configuracao.usuario_erp or not configuracao.senha_erp:
+        return '', ['Configure URL, usuario e senha do ERP antes de enviar serviços ao ERP.']
+
+    session = requests.Session()
+    transport = SeniorErpTransport(
+        session=session,
+        timeout=ERP_CLIENTES_TIMEOUT,
+        operation_timeout=ERP_CLIENTES_TIMEOUT,
+        public_base_url=_erp_public_base_url(configuracao),
+    )
+    client = ZeepClient(_erp_wsdl_url(configuracao), transport=transport)
+    payload = {
+        'user': configuracao.usuario_erp,
+        'password': configuracao.senha_erp,
+        'encryption': configuracao.encryption_erp,
+        'parameters': {
+            'codEmp': int(pedido['cod_emp']),
+            'codFil': int(pedido['cod_fil']),
+            'numPed': int(pedido['num_ped']),
+            'servico': servicos,
+        },
+    }
+    _log_erp_payload('adicionaServicoApp', payload)
+    response = client.service.adicionaServicoApp(**payload)
+    return _extract_adiciona_servico_erp_data(response)
+
+
+def _enviar_registros_erp(orcamento, user, registros):
+    servicos, servico_errors = _build_erp_servico_items_from_registros(registros)
+    if servico_errors:
+        return None, servico_errors
+
+    pedido, errors = _gerar_pedido_erp(orcamento, user)
+    if errors:
+        return None, errors
+
+    servico_msg = ''
+    if pedido['num_ped']:
+        servico_msg, servico_errors = _adicionar_servicos_pedido_erp(pedido, servicos)
+        if servico_errors:
+            return None, servico_errors
+        if servico_msg.upper().startswith('ERRO'):
+            return None, [servico_msg]
+
+    return (
+        'Geração de Pedido: '
+        f'Empresa = {pedido["cod_emp"]}, '
+        f'Filial = {pedido["cod_fil"]}, '
+        f'Pedido = {pedido["num_ped"]}, '
+        f'Mensagem de Retorno = {pedido["msg_ret"]}'
+        f'{", Retorno Serviços = " + servico_msg if servico_msg else ""}'
+    ), []
 
 
 def _clean_erp_orcamento_hours(value):
@@ -1121,7 +1421,6 @@ def _buscar_servicos_erp():
         return {}, ['Configure URL, usuario e senha do ERP antes de importar servicos.']
 
     session = requests.Session()
-    session.trust_env = False
     transport = SeniorErpTransport(
         session=session,
         timeout=ERP_CLIENTES_TIMEOUT,
@@ -1144,7 +1443,6 @@ def _buscar_servicos_orcamentos_erp():
         return [], ['Configure URL, usuario e senha do ERP antes de importar ligacoes de servicos.']
 
     session = requests.Session()
-    session.trust_env = False
     transport = SeniorErpTransport(
         session=session,
         timeout=ERP_CLIENTES_TIMEOUT,
@@ -1686,16 +1984,110 @@ class TimerView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
                 initial['orcamento'] = orcamento_id
             if servico_id and Servico.objects.filter(pk=servico_id).exists():
                 initial['servico'] = servico_id
-            form = RegistroForm(initial=initial)
+            form = RegistroForm(initial=initial, restrict_servicos_by_orcamento=True)
         context['form'] = form
         context['extra_rows'] = kwargs.get('extra_rows') or []
         context['descricao_max_length'] = REGISTRO_DESCRICAO_MAX_LENGTH
+        profile, _ = UserProfile.objects.get_or_create(user=self.request.user)
+        context['can_send_erp'] = profile.envia_erp
+        servicos_por_orcamento = defaultdict(list)
+        for ligacao in OrcamentoServico.objects.select_related('orcamento', 'servico').filter(orcamento__ativo=True):
+            servicos_por_orcamento[str(ligacao.orcamento_id)].append(
+                {
+                    'value': str(ligacao.servico_id),
+                    'label': str(ligacao.servico),
+                }
+            )
+        context['servicos_por_orcamento'] = {
+            orcamento_id: sorted(servicos, key=lambda item: item['label'])
+            for orcamento_id, servicos in servicos_por_orcamento.items()
+        }
         return context
+
+    def _render_enviar_erp_error(self, request):
+        form = RegistroForm(
+            initial={
+                'data': request.POST.get('data', ''),
+                'orcamento': request.POST.get('orcamento', ''),
+                'fase': request.POST.get('fase', ''),
+                'servico': request.POST.get('servico', ''),
+                'hora_inicio': request.POST.get('hora_inicio', ''),
+                'hora_fim': request.POST.get('hora_fim', ''),
+                'descricao': request.POST.get('descricao', ''),
+            },
+            restrict_servicos_by_orcamento=True,
+        )
+        return self.render_to_response(
+            self.get_context_data(
+                form=form,
+                extra_rows=_build_timer_rows_from_post(request)[1:],
+            )
+        )
 
     def post(self, request, *args, **kwargs):
         submission_mode = request.POST.get('submission_mode', 'manual')
+        if submission_mode == 'enviar_erp':
+            profile, _ = UserProfile.objects.get_or_create(user=request.user)
+            if not profile.envia_erp:
+                raise PermissionDenied
+
+            orcamento_id = request.POST.get('orcamento')
+            if not orcamento_id:
+                messages.error(request, 'Selecione um orçamento antes de enviar ao ERP.', extra_tags=TIMER_ERP_MESSAGE_TAG)
+                return self._render_enviar_erp_error(request)
+
+            try:
+                orcamento = Orcamento.objects.get(pk=orcamento_id)
+            except (Orcamento.DoesNotExist, ValueError):
+                messages.error(request, 'Selecione um orçamento válido antes de enviar ao ERP.', extra_tags=TIMER_ERP_MESSAGE_TAG)
+                return self._render_enviar_erp_error(request)
+            row_forms = _build_registro_forms_from_timer_post(request)
+            if not row_forms or not all(form.is_valid() for form in row_forms):
+                form = row_forms[0] if row_forms else RegistroForm(request.POST)
+                messages.error(request, 'Corrija os campos destacados antes de enviar ao ERP.', extra_tags=TIMER_ERP_MESSAGE_TAG)
+                return self.render_to_response(
+                    self.get_context_data(form=form, extra_rows=_build_timer_rows_from_post(request)[1:])
+                )
+
+            try:
+                registros_preview = []
+                for form in row_forms:
+                    registro = form.save(commit=False)
+                    registro.user = request.user
+                    registros_preview.append(registro)
+                mensagem_erp, errors = _enviar_registros_erp(orcamento, request.user, registros_preview)
+            except Exception as exc:
+                logger.exception('Erro ao gerar pedido no ERP: %s', exc)
+                messages.error(
+                    request,
+                    'Nao foi possivel gerar o pedido no ERP. Tente novamente mais tarde.',
+                    extra_tags=TIMER_ERP_MESSAGE_TAG,
+                )
+                return self._render_enviar_erp_error(request)
+
+            if errors:
+                for error in errors:
+                    messages.error(request, error, extra_tags=TIMER_ERP_MESSAGE_TAG)
+                return self._render_enviar_erp_error(request)
+
+            try:
+                _save_registro_forms(row_forms, request.user, processado=Registro.PROCESSADO_SIM)
+            except ValidationError as exc:
+                _add_model_validation_to_form(row_forms[0], exc)
+                messages.error(request, 'Nao foi possivel salvar o apontamento no app.', extra_tags=TIMER_ERP_MESSAGE_TAG)
+                return self.render_to_response(
+                    self.get_context_data(form=row_forms[0], extra_rows=_build_timer_rows_from_post(request)[1:])
+                )
+
+            messages.success(
+                request,
+                mensagem_erp,
+                extra_tags=TIMER_ERP_MESSAGE_TAG,
+            )
+            return redirect('horas:timer')
+
         if submission_mode == 'timer':
-            form = RegistroForm(request.POST)
+            form = RegistroForm(request.POST, restrict_servicos_by_orcamento=True)
             if form.is_valid():
                 registro = form.save(commit=False)
                 registro.user = request.user
@@ -1711,34 +2103,12 @@ class TimerView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
             return self.render_to_response(self.get_context_data(form=form))
 
         rows = _build_timer_rows_from_post(request)
-        row_forms = []
         extra_rows = rows[1:]
-        common_data = {
-            'data': request.POST.get('data', ''),
-            'orcamento': request.POST.get('orcamento', ''),
-            'fase': request.POST.get('fase', ''),
-            'servico': request.POST.get('servico', ''),
-        }
-
-        for row in rows:
-            row_forms.append(
-                RegistroForm(
-                    {
-                        **common_data,
-                        'hora_inicio': row['hora_inicio'],
-                        'hora_fim': row['hora_fim'],
-                        'descricao': row['descricao'],
-                    }
-                )
-            )
+        row_forms = _build_registro_forms_from_timer_post(request)
 
         if row_forms and all(form.is_valid() for form in row_forms):
             try:
-                with transaction.atomic():
-                    for form in row_forms:
-                        registro = form.save(commit=False)
-                        registro.user = request.user
-                        registro.save()
+                _save_registro_forms(row_forms, request.user)
             except ValidationError as exc:
                 _add_model_validation_to_form(row_forms[0], exc)
             else:
@@ -1749,7 +2119,7 @@ class TimerView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
                 )
                 return redirect('horas:timer')
 
-        form = row_forms[0] if row_forms else RegistroForm(request.POST)
+        form = row_forms[0] if row_forms else RegistroForm(request.POST, restrict_servicos_by_orcamento=True)
         messages.error(request, 'Corrija os campos destacados antes de salvar.')
         return self.render_to_response(self.get_context_data(form=form, extra_rows=extra_rows))
 
@@ -1764,10 +2134,13 @@ class RegistrosView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
             allow_usuario_filter=True,
         )
         can_filter_usuario = _user_can_export_csv(self.request.user)
+        profile, _ = UserProfile.objects.get_or_create(user=self.request.user)
+        can_processar_registro = can_filter_usuario and profile.envia_erp
         context['section'] = 'registros'
         context['registros'] = registros
         context['usuarios_filtro'] = User.objects.order_by('username') if can_filter_usuario else []
         context['can_filter_usuario'] = can_filter_usuario
+        context['can_processar_registro'] = can_processar_registro
         context['filtros'] = {
             'de': data_inicial.isoformat() if data_inicial else '',
             'ate': data_final.isoformat() if data_final else '',
@@ -1916,17 +2289,37 @@ class RegistroProcessarView(View):
     def post(self, request, pk):
         if not _user_can_export_csv(request.user):
             raise PermissionDenied
+        profile, _ = UserProfile.objects.get_or_create(user=request.user)
+        if not profile.envia_erp:
+            raise PermissionDenied
         registro = get_object_or_404(_base_registros_queryset(request.user, include_all_users=True), pk=pk)
         if registro.processado == Registro.PROCESSADO_SIM:
             raise PermissionDenied
-        registro.processado = Registro.PROCESSADO_SIM
-        messages.success(request, 'Registro marcado como processado.')
-        registro.save(update_fields=['processado', 'atualizado_em'])
 
         query = _query_string(request)
         destino = reverse('horas:registros')
         if query:
             destino = f'{destino}?{query}'
+
+        try:
+            mensagem_erp, errors = _enviar_registros_erp(registro.orcamento, registro.user, [registro])
+        except Exception as exc:
+            logger.exception('Erro ao enviar registro ao ERP: %s', exc)
+            messages.error(
+                request,
+                'Nao foi possivel enviar o registro ao ERP. Tente novamente mais tarde.',
+                extra_tags=ERP_MODAL_MESSAGE_TAG,
+            )
+            return redirect(destino)
+
+        if errors:
+            for error in errors:
+                messages.error(request, error, extra_tags=ERP_MODAL_MESSAGE_TAG)
+            return redirect(destino)
+
+        registro.processado = Registro.PROCESSADO_SIM
+        registro.save(update_fields=['processado', 'atualizado_em'])
+        messages.success(request, mensagem_erp, extra_tags=ERP_MODAL_MESSAGE_TAG)
         return redirect(destino)
 
 
@@ -2091,7 +2484,7 @@ class ConfiguracoesView(
         configuracao = ConfiguracaoSistema.objects.first()
         if configuracao:
             return configuracao
-        return ConfiguracaoSistema(url_erp='http://wsadmteste.magnus.com.br', encryption_erp=0)
+        return ConfiguracaoSistema(url_erp='https://wsadmin.magnus.com.br', encryption_erp=0)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -2150,11 +2543,19 @@ class ClientesView(
                 clientes_data, import_errors = _buscar_clientes_erp()
             except Exception as exc:
                 logger.exception('Erro ao consultar clientes no ERP: %s', exc)
-                messages.error(request, 'Nao foi possivel consultar os clientes no ERP. Tente novamente mais tarde.')
+                messages.error(
+                    request,
+                    'Nao foi possivel consultar os clientes no ERP. Tente novamente mais tarde.',
+                    extra_tags=ERP_MODAL_MESSAGE_TAG,
+                )
                 return redirect('horas:clientes')
 
             if import_errors:
-                messages.error(request, 'ERP retornou dados invalidos e nenhum cliente foi importado.')
+                messages.error(
+                    request,
+                    'ERP retornou dados invalidos e nenhum cliente foi importado.',
+                    extra_tags=ERP_MODAL_MESSAGE_TAG,
+                )
                 return self.render_to_response(self.get_context_data(import_errors=import_errors))
 
             created_count, updated_count = _salvar_clientes_data(clientes_data, request.user)
@@ -2164,6 +2565,7 @@ class ClientesView(
                     'Importacao do ERP concluida: '
                     f'{created_count} cliente(s) criado(s) e {updated_count} atualizado(s) com sucesso.'
                 ),
+                extra_tags=ERP_MODAL_MESSAGE_TAG,
             )
             return redirect('horas:clientes')
 
@@ -2266,11 +2668,19 @@ class OrcamentosView(
                 orcamentos_data, import_errors = _buscar_orcamentos_erp()
             except Exception as exc:
                 logger.exception('Erro ao consultar orcamentos no ERP: %s', exc)
-                messages.error(request, 'Nao foi possivel consultar os orcamentos no ERP. Tente novamente mais tarde.')
+                messages.error(
+                    request,
+                    'Nao foi possivel consultar os orcamentos no ERP. Tente novamente mais tarde.',
+                    extra_tags=ERP_MODAL_MESSAGE_TAG,
+                )
                 return redirect('horas:orcamentos')
 
             if import_errors:
-                messages.error(request, 'ERP retornou dados invalidos e nenhum orcamento foi importado.')
+                messages.error(
+                    request,
+                    'ERP retornou dados invalidos e nenhum orcamento foi importado.',
+                    extra_tags=ERP_MODAL_MESSAGE_TAG,
+                )
                 return self.render_to_response(self.get_context_data(erp_import_rejections=[
                     {'codigo': '-', 'motivo': error} for error in import_errors
                 ]))
@@ -2282,11 +2692,13 @@ class OrcamentosView(
                     'Importacao do ERP concluida: '
                     f'{created_count} orcamento(s) criado(s) e {updated_count} atualizado(s) com sucesso.'
                 ),
+                extra_tags=ERP_MODAL_MESSAGE_TAG,
             )
             if rejected:
                 messages.warning(
                     request,
                     f'{len(rejected)} orcamento(s) nao foram importado(s). Consulte os motivos na tela.',
+                    extra_tags=ERP_MODAL_MESSAGE_TAG,
                 )
                 return self.render_to_response(self.get_context_data(erp_import_rejections=rejected))
             return redirect('horas:orcamentos')
@@ -2397,11 +2809,19 @@ class ServicosView(GerenteProjetosRequiredMixin, AuthenticatedViewMixin, Sidebar
                 servicos_data, import_errors = _buscar_servicos_erp()
             except Exception as exc:
                 logger.exception('Erro ao consultar servicos no ERP: %s', exc)
-                messages.error(request, 'Nao foi possivel consultar os servicos no ERP. Tente novamente mais tarde.')
+                messages.error(
+                    request,
+                    'Nao foi possivel consultar os servicos no ERP. Tente novamente mais tarde.',
+                    extra_tags=ERP_MODAL_MESSAGE_TAG,
+                )
                 return redirect('horas:servicos')
 
             if import_errors:
-                messages.error(request, 'ERP retornou dados invalidos e nenhum servico foi importado.')
+                messages.error(
+                    request,
+                    'ERP retornou dados invalidos e nenhum servico foi importado.',
+                    extra_tags=ERP_MODAL_MESSAGE_TAG,
+                )
                 return self.render_to_response(self.get_context_data(import_errors=import_errors))
 
             created_count, updated_count = _salvar_servicos_data(servicos_data)
@@ -2411,6 +2831,7 @@ class ServicosView(GerenteProjetosRequiredMixin, AuthenticatedViewMixin, Sidebar
                     'Importacao do ERP concluida: '
                     f'{created_count} servico(s) criado(s) e {updated_count} atualizado(s) com sucesso.'
                 ),
+                extra_tags=ERP_MODAL_MESSAGE_TAG,
             )
             return redirect('horas:servicos')
 
@@ -2453,11 +2874,19 @@ class ServicoOrcamentoView(GerenteProjetosRequiredMixin, AuthenticatedViewMixin,
             ligacoes_data, import_errors = _buscar_servicos_orcamentos_erp()
         except Exception as exc:
             logger.exception('Erro ao consultar ligacoes de servico x orcamento no ERP: %s', exc)
-            messages.error(request, 'Nao foi possivel consultar as ligacoes no ERP. Tente novamente mais tarde.')
+            messages.error(
+                request,
+                'Nao foi possivel consultar as ligacoes no ERP. Tente novamente mais tarde.',
+                extra_tags=ERP_MODAL_MESSAGE_TAG,
+            )
             return redirect('horas:servico_orcamento')
 
         if import_errors:
-            messages.error(request, 'ERP retornou dados invalidos e nenhuma ligacao foi importada.')
+            messages.error(
+                request,
+                'ERP retornou dados invalidos e nenhuma ligacao foi importada.',
+                extra_tags=ERP_MODAL_MESSAGE_TAG,
+            )
             return self.render_to_response(
                 self.get_context_data(
                     selected_orcamento_id=orcamento_id,
@@ -2472,11 +2901,13 @@ class ServicoOrcamentoView(GerenteProjetosRequiredMixin, AuthenticatedViewMixin,
                 'Importacao do ERP concluida: '
                 f'{created_count} ligacao(oes) criada(s) e {updated_count} atualizada(s) com sucesso.'
             ),
+            extra_tags=ERP_MODAL_MESSAGE_TAG,
         )
         if rejected:
             messages.warning(
                 request,
                 f'{len(rejected)} ligacao(oes) nao foram atualizada(s). Consulte os motivos na tela.',
+                extra_tags=ERP_MODAL_MESSAGE_TAG,
             )
             return self.render_to_response(
                 self.get_context_data(selected_orcamento_id=orcamento_id, erp_import_rejections=rejected)

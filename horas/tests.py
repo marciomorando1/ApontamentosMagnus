@@ -202,6 +202,8 @@ class TimerViewTests(AuthenticatedTestCase):
             nome='Projeto teste',
             horas=Decimal('20.5'),
         )
+        self.outro_servico = Servico.objects.create(codigo='S02', descricao='Servico sem vinculo')
+        OrcamentoServico.objects.create(orcamento=self.orcamento, servico=self.servico)
 
     def test_cria_registro_valido(self):
         response = self.client.post(
@@ -291,12 +293,58 @@ class TimerViewTests(AuthenticatedTestCase):
     def test_abre_apontamento_com_servico_preenchido(self):
         response = self.client.get(
             reverse('horas:timer'),
-            {'servico': self.servico.pk},
+            {'orcamento': self.orcamento.pk, 'servico': self.servico.pk},
         )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context['form'].initial['servico'], str(self.servico.pk))
         self.assertContains(response, f'<option value="{self.servico.pk}" selected', html=False)
+
+    def test_timer_filtra_servicos_pelo_orcamento_selecionado(self):
+        response = self.client.get(
+            reverse('horas:timer'),
+            {'orcamento': self.orcamento.pk},
+        )
+
+        servicos = list(response.context['form'].fields['servico'].queryset)
+        self.assertEqual(servicos, [self.servico])
+        self.assertContains(response, 'servicos-por-orcamento', html=False)
+        self.assertContains(response, 'function updateServiceOptions()', html=False)
+
+    def test_timer_rejeita_servico_sem_ligacao_com_orcamento(self):
+        response = self.client.post(
+            reverse('horas:timer'),
+            data={
+                'data': date.today().isoformat(),
+                'orcamento': self.orcamento.pk,
+                'servico': self.outro_servico.pk,
+                'hora_inicio': '08:00',
+                'hora_fim': '09:30',
+                'descricao': 'Servico sem vinculo',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Registro.objects.count(), 0)
+        self.assertContains(response, 'Faça uma escolha válida')
+
+    def test_edicao_de_registro_antigo_nao_filtra_servicos_por_orcamento(self):
+        registro = Registro.objects.create(
+            user=self.user,
+            data=date.today(),
+            orcamento=self.orcamento,
+            servico=self.outro_servico,
+            hora_inicio='08:00',
+            hora_fim='09:00',
+            descricao='Registro antigo com servico sem vinculo',
+        )
+
+        response = self.client.get(reverse('horas:registro_editar', args=[registro.pk]))
+
+        servicos = list(response.context['form'].fields['servico'].queryset)
+        self.assertIn(self.servico, servicos)
+        self.assertIn(self.outro_servico, servicos)
+        self.assertContains(response, f'<option value="{self.outro_servico.pk}" selected', html=False)
 
     def test_exibe_horas_do_orcamento_em_campo_somente_leitura(self):
         response = self.client.get(reverse('horas:timer'))
@@ -305,7 +353,270 @@ class TimerViewTests(AuthenticatedTestCase):
         self.assertContains(response, 'id="orcamento-horas" placeholder="—" readonly', html=False)
         self.assertContains(response, 'data-horas="20:30"', html=False)
         self.assertContains(response, 'function updateBudgetHours()', html=False)
-        self.assertContains(response, "budgetField.addEventListener('change', updateBudgetHours)", html=False)
+        self.assertContains(response, "budgetField.addEventListener('change', () =>", html=False)
+
+    def test_timer_nao_exibe_botao_enviar_erp_sem_permissao(self):
+        response = self.client.get(reverse('horas:timer'))
+
+        self.assertNotContains(response, 'id="btn-send-erp"', html=False)
+        self.assertNotContains(response, 'Enviar ERP')
+
+    def test_timer_exibe_botao_enviar_erp_com_permissao(self):
+        self.user.profile.envia_erp = True
+        self.user.profile.save(update_fields=['envia_erp'])
+
+        response = self.client.get(reverse('horas:timer'))
+
+        self.assertContains(response, 'Enviar ERP')
+        self.assertContains(response, 'id="btn-send-erp" formnovalidate', html=False)
+        self.assertContains(response, 'id="erp-send-status"', html=False)
+        self.assertContains(response, 'Processando envio...')
+        self.assertContains(response, "submissionModeField.value = 'enviar_erp'", html=False)
+        self.assertContains(response, "sendErpButton.disabled = true", html=False)
+
+    @patch('horas.views.ZeepClient')
+    def test_enviar_erp_sem_permissao_retorna_403(self, zeep_client):
+        response = self.client.post(
+            reverse('horas:timer'),
+            data={'submission_mode': 'enviar_erp', 'orcamento': self.orcamento.pk},
+        )
+
+        self.assertEqual(response.status_code, 403)
+        zeep_client.assert_not_called()
+
+    def test_mensagens_exigem_ok_para_fechar(self):
+        self.user.profile.envia_erp = True
+        self.user.profile.save(update_fields=['envia_erp'])
+
+        response = self.client.post(
+            reverse('horas:timer'),
+            data={'submission_mode': 'enviar_erp'},
+        )
+
+        self.assertContains(response, 'class="erp-return-dialog-backdrop"', html=False)
+        self.assertContains(response, 'class="erp-return-dialog erp-return-dialog-error"', html=False)
+        self.assertContains(response, 'Retorno ERP')
+        self.assertContains(response, "this.closest('.erp-return-dialog-backdrop').remove()", html=False)
+        self.assertContains(response, "document.addEventListener('click'", html=False)
+        self.assertNotContains(response, '2800 + (index * 200)', html=False)
+
+    @patch('horas.views.ZeepClient')
+    def test_enviar_erp_chama_porta_novo_e_exibe_retorno(self, zeep_client):
+        self.user.profile.envia_erp = True
+        self.user.profile.save(update_fields=['envia_erp'])
+        ConfiguracaoSistema.objects.update_or_create(
+            pk=1,
+            defaults={
+                'url_erp': 'https://wsadmin.magnus.com.br',
+                'usuario_erp': 'usuario-erp',
+                'senha_erp': 'senha-erp',
+                'encryption_erp': 0,
+            },
+        )
+        self.orcamento.numero_chamado = '98765'
+        self.orcamento.save(update_fields=['numero_chamado'])
+        self.user.profile.codigoerp = 321
+        self.user.profile.save(update_fields=['codigoerp'])
+        zeep_client.return_value.service.novo.return_value = {
+            'CodEmp': '1',
+            'CodFil': '2',
+            'NumPed': '3456',
+            'MsgRet': 'Pedido gerado',
+        }
+        zeep_client.return_value.service.adicionaServicoApp.return_value = {
+            'msgRet': 'Servicos adicionados',
+        }
+
+        response = self.client.post(
+            reverse('horas:timer'),
+            data={
+                'submission_mode': 'enviar_erp',
+                'orcamento': self.orcamento.pk,
+                'data': '2026-08-26',
+                'servico': self.servico.pk,
+                'hora_inicio': '08:15',
+                'hora_fim': '09:45',
+                'descricao': 'Atividade principal',
+                'extra_hora_inicio': ['10:00'],
+                'extra_hora_fim': ['11:00'],
+                'extra_descricao': ['Atividade adicional'],
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            'Geração de Pedido: Empresa = 1, Filial = 2, Pedido = 3456, Mensagem de Retorno = Pedido gerado',
+        )
+        self.assertContains(response, 'class="erp-return-dialog-backdrop"', html=False)
+        self.assertEqual(Registro.objects.count(), 2)
+        self.assertEqual(Registro.objects.filter(user=self.user).count(), 2)
+        self.assertEqual(Registro.objects.filter(processado=Registro.PROCESSADO_SIM).count(), 2)
+        self.assertTrue(
+            Registro.objects.filter(
+                data='2026-08-26',
+                orcamento=self.orcamento,
+                servico=self.servico,
+                hora_inicio='08:15',
+                hora_fim='09:45',
+                descricao='Atividade principal',
+            ).exists()
+        )
+        self.assertTrue(
+            Registro.objects.filter(
+                data='2026-08-26',
+                orcamento=self.orcamento,
+                servico=self.servico,
+                hora_inicio='10:00',
+                hora_fim='11:00',
+                descricao='Atividade adicional',
+            ).exists()
+        )
+        self.assertContains(response, 'Retorno Serviços = Servicos adicionados')
+        zeep_client.return_value.service.novo.assert_called_once_with(
+            user='usuario-erp',
+            password='senha-erp',
+            encryption=0,
+            parameters={
+                'numOrc': 17275,
+                'codRep': 321,
+            },
+        )
+        zeep_client.return_value.service.adicionaServicoApp.assert_called_once_with(
+            user='usuario-erp',
+            password='senha-erp',
+            encryption=0,
+            parameters={
+                'codEmp': 1,
+                'codFil': 2,
+                'numPed': 3456,
+                'servico': [
+                    {
+                        'seqIsp': 1,
+                        'codSer': 'S01',
+                        'datSer': '26/08/2026',
+                        'horIni': 495,
+                        'horFim': 585,
+                        'desSer': 'Atividade principal',
+                        'numCha': 98765,
+                        'qtdPed': '1',
+                    },
+                    {
+                        'seqIsp': 2,
+                        'codSer': 'S01',
+                        'datSer': '26/08/2026',
+                        'horIni': 600,
+                        'horFim': 660,
+                        'desSer': 'Atividade adicional',
+                        'numCha': 98765,
+                        'qtdPed': '1',
+                    },
+                ],
+            },
+        )
+
+    def test_enviar_erp_exige_orcamento_preenchido(self):
+        self.user.profile.envia_erp = True
+        self.user.profile.save(update_fields=['envia_erp'])
+
+        response = self.client.post(
+            reverse('horas:timer'),
+            data={'submission_mode': 'enviar_erp'},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Selecione um orçamento antes de enviar ao ERP.')
+
+    def test_enviar_erp_com_erro_preserva_campos_preenchidos(self):
+        self.user.profile.envia_erp = True
+        self.user.profile.save(update_fields=['envia_erp'])
+        self.orcamento.numero_chamado = '98765'
+        self.orcamento.save(update_fields=['numero_chamado'])
+
+        response = self.client.post(
+            reverse('horas:timer'),
+            data={
+                'submission_mode': 'enviar_erp',
+                'data': '2026-08-26',
+                'orcamento': self.orcamento.pk,
+                'fase': self.fase.pk,
+                'servico': self.servico.pk,
+                'hora_inicio': '08:15',
+                'hora_fim': '09:45',
+                'descricao': 'Atividade preenchida',
+                'extra_hora_inicio': ['10:00'],
+                'extra_hora_fim': ['11:00'],
+                'extra_descricao': ['Atividade adicional'],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Configure URL, usuario e senha do ERP antes de enviar ao ERP.')
+        self.assertContains(response, 'value="2026-08-26"', html=False)
+        self.assertContains(response, f'<option value="{self.orcamento.pk}" selected', html=False)
+        self.assertContains(response, f'<option value="{self.fase.pk}" selected', html=False)
+        self.assertContains(response, f'<option value="{self.servico.pk}" selected', html=False)
+        self.assertContains(response, 'value="08:15"', html=False)
+        self.assertContains(response, 'value="09:45"', html=False)
+        self.assertContains(response, 'Atividade preenchida')
+        self.assertEqual(Registro.objects.count(), 0)
+        self.assertContains(response, 'value="10:00"', html=False)
+        self.assertContains(response, 'value="11:00"', html=False)
+        self.assertContains(response, 'Atividade adicional')
+
+    @patch('horas.views.ZeepClient')
+    def test_enviar_erp_com_retorno_servicos_erro_preserva_campos_preenchidos(self, zeep_client):
+        self.user.profile.envia_erp = True
+        self.user.profile.save(update_fields=['envia_erp'])
+        ConfiguracaoSistema.objects.update_or_create(
+            pk=1,
+            defaults={
+                'url_erp': 'https://wsadmin.magnus.com.br',
+                'usuario_erp': 'usuario-erp',
+                'senha_erp': 'senha-erp',
+                'encryption_erp': 0,
+            },
+        )
+        self.orcamento.numero_chamado = '98765'
+        self.orcamento.save(update_fields=['numero_chamado'])
+        self.user.profile.codigoerp = 321
+        self.user.profile.save(update_fields=['codigoerp'])
+        zeep_client.return_value.service.novo.return_value = {
+            'CodEmp': '1',
+            'CodFil': '2',
+            'NumPed': '3456',
+            'MsgRet': 'Pedido gerado',
+        }
+        zeep_client.return_value.service.adicionaServicoApp.return_value = {
+            'msgRet': 'ERRO - Servico invalido',
+        }
+
+        response = self.client.post(
+            reverse('horas:timer'),
+            data={
+                'submission_mode': 'enviar_erp',
+                'data': '2026-08-26',
+                'orcamento': self.orcamento.pk,
+                'fase': self.fase.pk,
+                'servico': self.servico.pk,
+                'hora_inicio': '08:15',
+                'hora_fim': '09:45',
+                'descricao': 'Atividade preenchida',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'ERRO - Servico invalido')
+        self.assertContains(response, 'class="erp-return-dialog-backdrop"', html=False)
+        self.assertContains(response, 'value="2026-08-26"', html=False)
+        self.assertContains(response, f'<option value="{self.orcamento.pk}" selected', html=False)
+        self.assertContains(response, f'<option value="{self.fase.pk}" selected', html=False)
+        self.assertContains(response, f'<option value="{self.servico.pk}" selected', html=False)
+        self.assertContains(response, 'value="08:15"', html=False)
+        self.assertContains(response, 'value="09:45"', html=False)
+        self.assertContains(response, 'Atividade preenchida')
 
     def test_base_autenticada_exibe_alternancia_de_tema(self):
         response = self.client.get(reverse('horas:timer'))
@@ -506,6 +817,30 @@ class RegistrosViewTests(AuthenticatedTestCase):
     def setUp(self):
         super().setUp()
         self.orcamento = Orcamento.objects.create(codigo='17275', nome='Projeto teste')
+
+    def configurar_envio_erp_para_processamento(self, zeep_client, *, mensagem_servico='Servicos adicionados'):
+        ConfiguracaoSistema.objects.update_or_create(
+            pk=1,
+            defaults={
+                'url_erp': 'https://wsadmin.magnus.com.br',
+                'usuario_erp': 'usuario-erp',
+                'senha_erp': 'senha-erp',
+                'encryption_erp': 0,
+            },
+        )
+        self.user.profile.exportacsv = True
+        self.user.profile.envia_erp = True
+        self.user.profile.codigoerp = 321
+        self.user.profile.save(update_fields=['exportacsv', 'envia_erp', 'codigoerp'])
+        self.orcamento.numero_chamado = '98765'
+        self.orcamento.save(update_fields=['numero_chamado'])
+        zeep_client.return_value.service.novo.return_value = {
+            'CodEmp': '1',
+            'CodFil': '2',
+            'NumPed': '3456',
+            'MsgRet': 'Pedido gerado',
+        }
+        zeep_client.return_value.service.adicionaServicoApp.return_value = {'msgRet': mensagem_servico}
 
     def test_lista_registros_em_ordem_crescente_por_data(self):
         self.criar_registro(
@@ -776,6 +1111,7 @@ class RegistrosViewTests(AuthenticatedTestCase):
 
         registros = list(response.context['registros'])
         self.assertFalse(response.context['can_filter_usuario'])
+        self.assertFalse(response.context['can_processar_registro'])
         self.assertNotContains(response, 'name="usuario"', html=False)
         self.assertNotContains(response, 'Exportar CSV')
         self.assertNotContains(response, reverse('horas:registro_processar', args=[registro.pk]))
@@ -804,9 +1140,10 @@ class RegistrosViewTests(AuthenticatedTestCase):
 
         registros = list(response.context['registros'])
         self.assertTrue(response.context['can_filter_usuario'])
+        self.assertFalse(response.context['can_processar_registro'])
         self.assertContains(response, 'name="usuario"', html=False)
         self.assertContains(response, 'Exportar CSV')
-        self.assertContains(response, reverse('horas:registro_processar', args=[outro_registro.pk]))
+        self.assertNotContains(response, reverse('horas:registro_processar', args=[outro_registro.pk]))
         self.assertContains(response, self.other_user.username)
         self.assertEqual(len(registros), 1)
         self.assertEqual(registros[0].descricao, 'Registro de outro usuario')
@@ -954,12 +1291,14 @@ class RegistrosViewTests(AuthenticatedTestCase):
         self.assertEqual(response_remover.status_code, 403)
         self.assertTrue(Registro.objects.filter(pk=registro.pk).exists())
 
-    def test_marca_registro_como_processado(self):
-        self.user.profile.exportacsv = True
-        self.user.profile.save(update_fields=['exportacsv'])
+    @patch('horas.views.ZeepClient')
+    def test_marca_registro_como_processado_quando_erp_retorna_sucesso(self, zeep_client):
+        self.configurar_envio_erp_para_processamento(zeep_client)
         registro = self.criar_registro(
             orcamento=self.orcamento,
-            data=date.today(),
+            data=date(2026, 8, 26),
+            hora_inicio='08:15',
+            hora_fim='09:45',
             descricao='Pendente',
         )
 
@@ -969,12 +1308,65 @@ class RegistrosViewTests(AuthenticatedTestCase):
         )
 
         self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Servicos adicionados')
         registro.refresh_from_db()
         self.assertEqual(registro.processado, Registro.PROCESSADO_SIM)
+        zeep_client.return_value.service.novo.assert_called_once_with(
+            user='usuario-erp',
+            password='senha-erp',
+            encryption=0,
+            parameters={'numOrc': 17275, 'codRep': 321},
+        )
+        zeep_client.return_value.service.adicionaServicoApp.assert_called_once_with(
+            user='usuario-erp',
+            password='senha-erp',
+            encryption=0,
+            parameters={
+                'codEmp': 1,
+                'codFil': 2,
+                'numPed': 3456,
+                'servico': [
+                    {
+                        'seqIsp': 1,
+                        'codSer': 'S01',
+                        'datSer': '26/08/2026',
+                        'horIni': 495,
+                        'horFim': 585,
+                        'desSer': 'Pendente',
+                        'numCha': 98765,
+                        'qtdPed': '1',
+                    },
+                ],
+            },
+        )
+
+    @patch('horas.views.ZeepClient')
+    def test_erro_erp_mantem_registro_nao_processado_e_exibe_modal(self, zeep_client):
+        self.configurar_envio_erp_para_processamento(
+            zeep_client,
+            mensagem_servico='ERRO: Servico nao relacionado ao orcamento',
+        )
+        registro = self.criar_registro(
+            orcamento=self.orcamento,
+            data=date(2026, 8, 26),
+            descricao='Pendente',
+        )
+
+        response = self.client.post(
+            reverse('horas:registro_processar', args=[registro.pk]),
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'class="erp-return-dialog-backdrop"', html=False)
+        self.assertContains(response, 'ERRO: Servico nao relacionado ao orcamento')
+        registro.refresh_from_db()
+        self.assertEqual(registro.processado, Registro.PROCESSADO_NAO)
 
     def test_nao_desmarca_registro_processado(self):
         self.user.profile.exportacsv = True
-        self.user.profile.save(update_fields=['exportacsv'])
+        self.user.profile.envia_erp = True
+        self.user.profile.save(update_fields=['exportacsv', 'envia_erp'])
         registro = self.criar_registro(
             orcamento=self.orcamento,
             data=date.today(),
@@ -1003,9 +1395,26 @@ class RegistrosViewTests(AuthenticatedTestCase):
         registro.refresh_from_db()
         self.assertEqual(registro.processado, Registro.PROCESSADO_NAO)
 
-    def test_usuario_com_exportacsv_processa_registro_de_outro_usuario(self):
+    def test_nao_permite_processar_registro_sem_permissao_envia_erp(self):
         self.user.profile.exportacsv = True
         self.user.profile.save(update_fields=['exportacsv'])
+        registro = self.criar_registro(
+            orcamento=self.orcamento,
+            data=date.today(),
+            descricao='Sem permissao ERP',
+        )
+
+        response = self.client.post(reverse('horas:registro_processar', args=[registro.pk]))
+
+        self.assertEqual(response.status_code, 403)
+        registro.refresh_from_db()
+        self.assertEqual(registro.processado, Registro.PROCESSADO_NAO)
+
+    @patch('horas.views.ZeepClient')
+    def test_usuario_com_permissoes_processa_registro_de_outro_usuario(self, zeep_client):
+        self.configurar_envio_erp_para_processamento(zeep_client)
+        self.other_user.profile.codigoerp = 654
+        self.other_user.profile.save(update_fields=['codigoerp'])
         registro = self.criar_registro(
             user=self.other_user,
             orcamento=self.orcamento,
@@ -1018,6 +1427,12 @@ class RegistrosViewTests(AuthenticatedTestCase):
         self.assertRedirects(response, reverse('horas:registros'), fetch_redirect_response=False)
         registro.refresh_from_db()
         self.assertEqual(registro.processado, Registro.PROCESSADO_SIM)
+        zeep_client.return_value.service.novo.assert_called_once_with(
+            user='usuario-erp',
+            password='senha-erp',
+            encryption=0,
+            parameters={'numOrc': 17275, 'codRep': 654},
+        )
 
 
 class ResumoViewTests(AuthenticatedTestCase):
@@ -1183,6 +1598,7 @@ class AuthenticationFlowTests(TestCase):
         self.assertContains(response, 'is_administrador')
         self.assertContains(response, 'is_pmo')
         self.assertContains(response, 'exportacsv')
+        self.assertContains(response, 'envia_erp')
         self.assertContains(response, 'codigoerp')
 
     def test_admin_exige_codigoerp_ao_criar_usuario(self):
@@ -1220,6 +1636,7 @@ class AuthenticationFlowTests(TestCase):
         user = User.objects.get(username='usuario-com-codigo')
         self.assertEqual(user.profile.codigoerp, 12345)
         self.assertFalse(user.profile.is_administrador)
+        self.assertFalse(user.profile.envia_erp)
 
     def test_admin_pode_marcar_usuario_como_administrador_ao_criar(self):
         admin = User.objects.create_superuser(
@@ -1237,6 +1654,7 @@ class AuthenticationFlowTests(TestCase):
                 'password2': 'SenhaForte123!abc',
                 'codigoerp': '54321',
                 'is_administrador': 'on',
+                'envia_erp': 'on',
             },
         )
 
@@ -1244,6 +1662,7 @@ class AuthenticationFlowTests(TestCase):
         user = User.objects.get(username='usuario-administrador')
         self.assertEqual(user.profile.codigoerp, 54321)
         self.assertTrue(user.profile.is_administrador)
+        self.assertTrue(user.profile.envia_erp)
 
 
 class RegistroAdminTests(AuthenticatedTestCase):
@@ -1338,6 +1757,8 @@ class ClientesViewTests(AuthenticatedTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Importacao do ERP concluida')
+        self.assertContains(response, 'class="erp-return-dialog-backdrop"', html=False)
+        self.assertContains(response, 'Retorno ERP')
         cliente_atualizado = Cliente.objects.get(Codigo_Cliente='100')
         cliente_novo = Cliente.objects.get(Codigo_Cliente='101')
         self.assertEqual(cliente_atualizado.Nome_Cliente, 'Nome Atualizado')
@@ -1353,7 +1774,7 @@ class ClientesViewTests(AuthenticatedTestCase):
         ConfiguracaoSistema.objects.update_or_create(
             pk=1,
             defaults={
-                'url_erp': 'http://wsadmteste.magnus.com.br',
+                'url_erp': 'https://wsadmin.magnus.com.br',
                 'usuario_erp': 'usuario-erp',
                 'senha_erp': 'senha-erp',
                 'encryption_erp': 0,
@@ -1383,7 +1804,7 @@ class ClientesViewTests(AuthenticatedTestCase):
         response = self.client.post(
             reverse('horas:configuracoes'),
             data={
-                'url_erp': 'http://wsadmteste.magnus.com.br/',
+                'url_erp': 'https://wsadmin.magnus.com.br/',
                 'usuario_erp': 'marcio.morando',
                 'senha_erp': 'Arthur@2026',
             },
@@ -1393,7 +1814,7 @@ class ClientesViewTests(AuthenticatedTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Configuracoes salvas com sucesso.')
         configuracao = ConfiguracaoSistema.objects.get()
-        self.assertEqual(configuracao.url_erp, 'http://wsadmteste.magnus.com.br')
+        self.assertEqual(configuracao.url_erp, 'https://wsadmin.magnus.com.br')
         self.assertEqual(configuracao.usuario_erp, 'marcio.morando')
         self.assertEqual(configuracao.senha_erp, 'Arthur@2026')
         self.assertEqual(configuracao.encryption_erp, 0)
@@ -1610,6 +2031,8 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         self.assertEqual(atualizado.pmo, self.pmo_user)
         self.assertEqual(novo.nome_cliente, 'Cliente Horas')
         self.assertContains(response, 'Orçamentos não importados')
+        self.assertContains(response, 'class="erp-return-dialog-backdrop"', html=False)
+        self.assertContains(response, 'Retorno ERP')
         self.assertContains(response, 'Cliente 999 nao cadastrado.')
         self.assertContains(response, 'Usuario com codigo ERP 888 nao cadastrado.')
         self.assertFalse(Orcamento.objects.filter(codigo='502').exists())
@@ -1622,7 +2045,7 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         ConfiguracaoSistema.objects.update_or_create(
             pk=1,
             defaults={
-                'url_erp': 'http://wsadmteste.magnus.com.br',
+                'url_erp': 'https://wsadmin.magnus.com.br',
                 'usuario_erp': 'usuario-erp',
                 'senha_erp': 'senha-erp',
                 'encryption_erp': 0,
@@ -2844,6 +3267,8 @@ class ServicosViewTests(AuthenticatedTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Importacao do ERP concluida')
+        self.assertContains(response, 'class="erp-return-dialog-backdrop"', html=False)
+        self.assertContains(response, 'Retorno ERP')
         self.assertEqual(Servico.objects.get(codigo='S10').descricao, 'Descricao atualizada')
         self.assertTrue(Servico.objects.filter(codigo='S11', descricao='Servico novo').exists())
 
@@ -2854,7 +3279,7 @@ class ServicosViewTests(AuthenticatedTestCase):
         ConfiguracaoSistema.objects.update_or_create(
             pk=1,
             defaults={
-                'url_erp': 'http://wsadmteste.magnus.com.br',
+                'url_erp': 'https://wsadmin.magnus.com.br',
                 'usuario_erp': 'usuario-erp',
                 'senha_erp': 'senha-erp',
                 'encryption_erp': 0,
@@ -2998,6 +3423,8 @@ class ServicoOrcamentoViewTests(AuthenticatedTestCase):
             OrcamentoServico.objects.filter(orcamento=self.orcamento, servico=self.outro_servico).exists()
         )
         self.assertContains(response, 'Ligações não atualizadas')
+        self.assertContains(response, 'class="erp-return-dialog-backdrop"', html=False)
+        self.assertContains(response, 'Retorno ERP')
         self.assertContains(response, '999 / S90')
         self.assertContains(response, 'Orcamento 999 nao cadastrado.')
         self.assertContains(response, '900 / S99')
@@ -3010,7 +3437,7 @@ class ServicoOrcamentoViewTests(AuthenticatedTestCase):
         ConfiguracaoSistema.objects.update_or_create(
             pk=1,
             defaults={
-                'url_erp': 'http://wsadmteste.magnus.com.br',
+                'url_erp': 'https://wsadmin.magnus.com.br',
                 'usuario_erp': 'usuario-erp',
                 'senha_erp': 'senha-erp',
                 'encryption_erp': 0,
@@ -3047,6 +3474,7 @@ class UserProfileTests(TestCase):
         self.assertFalse(user.profile.is_administrador)
         self.assertFalse(user.profile.is_pmo)
         self.assertFalse(user.profile.exportacsv)
+        self.assertFalse(user.profile.envia_erp)
         self.assertFalse(user.profile.must_change_password)
 
 

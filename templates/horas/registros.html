@@ -76,7 +76,7 @@
             <td>{% if registro.servico %}<span class="badge-code">{{ registro.servico.codigo }}</span>{% else %}—{% endif %}</td>
             <td class="desc">{{ registro.descricao|default:'—' }}</td>
             <td>
-              {% if can_filter_usuario and registro.processado != 'S' %}
+              {% if can_processar_registro and registro.processado != 'S' %}
                 <form method="post" action="{% url 'horas:registro_processar' registro.pk %}?de={{ filtros.de }}&ate={{ filtros.ate }}&orcamento={{ filtros.orcamento }}{% if can_filter_usuario %}&usuario={{ filtros.usuario }}{% endif %}">
                   {% csrf_token %}
                   <button

@@ -74,7 +74,7 @@ class Cliente(models.Model):
 
 
 class ConfiguracaoSistema(models.Model):
-    url_erp = models.URLField('URL ERP', max_length=255, default='http://wsadmteste.magnus.com.br')
+    url_erp = models.URLField('URL ERP', max_length=255, default='https://wsadmin.magnus.com.br')
     usuario_erp = models.CharField('Usuario ERP', max_length=100)
     senha_erp = models.CharField('Senha ERP', max_length=200)
     encryption_erp = models.PositiveSmallIntegerField('Encryption ERP', default=0)
@@ -200,6 +200,7 @@ class UserProfile(models.Model):
     is_administrador = models.BooleanField('Administrador', default=False)
     is_pmo = models.BooleanField(default=False)
     exportacsv = models.BooleanField('Exporta CSV', default=False)
+    envia_erp = models.BooleanField('Envia ERP', default=False)
     codigoerp = models.PositiveIntegerField('Código ERP', default=0)
     must_change_password = models.BooleanField(
         'Exigir troca de senha no proximo login',

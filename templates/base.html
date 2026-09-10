@@ -15,7 +15,48 @@
     })();
   </script>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{% static 'css/style.css' %}?v=agenda-form-layout-4">
+  <link rel="stylesheet" href="{% static 'css/style.css' %}?v=timer-erp-modal-2">
+  <style>
+    .erp-return-dialog-backdrop {
+      position: fixed !important;
+      inset: 0 !important;
+      z-index: 5000 !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      padding: 24px !important;
+      background: rgba(8, 17, 31, 0.42) !important;
+    }
+    .erp-return-dialog {
+      width: min(680px, calc(100vw - 48px)) !important;
+      max-height: calc(100vh - 48px) !important;
+      overflow: auto !important;
+      background: var(--surface, #fff) !important;
+      color: var(--text, #0f172a) !important;
+      border: 1px solid var(--border, #d6dee8) !important;
+      border-left: 5px solid var(--accent, #009879) !important;
+      border-radius: 18px !important;
+      box-shadow: 0 30px 100px rgba(0, 0, 0, 0.38) !important;
+      padding: 26px 28px !important;
+    }
+    .erp-return-dialog-error { border-left-color: var(--danger, #dc2626) !important; }
+    .erp-return-dialog h2 {
+      margin: 0 0 14px !important;
+      font-size: 20px !important;
+      font-weight: 600 !important;
+      letter-spacing: 0 !important;
+    }
+    .erp-return-dialog-message {
+      line-height: 1.5 !important;
+      overflow-wrap: anywhere !important;
+      white-space: normal !important;
+    }
+    .erp-return-dialog-actions {
+      display: flex !important;
+      justify-content: flex-end !important;
+      margin-top: 22px !important;
+    }
+  </style>
 </head>
 <body class="{% if not user.is_authenticated %}auth-body{% endif %}">
   {% if user.is_authenticated %}
@@ -108,15 +149,37 @@
 
   <div class="toast-stack">
     {% for message in messages %}
-      <div class="toast show {% if message.tags %}toast-{{ message.tags }}{% endif %}">{{ message }}</div>
+      {% if 'erp-modal-return' not in message.tags %}
+        <div class="toast show {% if message.level_tag %}toast-{{ message.level_tag }}{% endif %}">
+          <div class="toast-message">{{ message }}</div>
+          <button class="btn btn-primary btn-sm toast-ok" type="button" onclick="this.closest('.toast').remove();">OK</button>
+        </div>
+      {% endif %}
     {% endfor %}
   </div>
 
+  {% for message in messages %}
+    {% if 'erp-modal-return' in message.tags %}
+      <div class="erp-return-dialog-backdrop">
+        <div class="erp-return-dialog {% if message.level_tag %}erp-return-dialog-{{ message.level_tag }}{% endif %}" role="dialog" aria-modal="true" aria-labelledby="erp-return-dialog-title">
+          <h2 id="erp-return-dialog-title">Retorno ERP</h2>
+          <div class="erp-return-dialog-message">{{ message }}</div>
+          <div class="erp-return-dialog-actions">
+            <button class="btn btn-primary" type="button" onclick="this.closest('.erp-return-dialog-backdrop').remove();">OK</button>
+          </div>
+        </div>
+      </div>
+    {% endif %}
+  {% endfor %}
+
   <script>
-    document.querySelectorAll('.toast.show').forEach((toast, index) => {
-      setTimeout(() => {
-        toast.classList.remove('show');
-      }, 2800 + (index * 200));
+    document.addEventListener('click', (event) => {
+      const button = event.target.closest('.toast-ok');
+      if (!button) return;
+      const toast = button.closest('.toast');
+      if (!toast) return;
+      toast.classList.remove('show');
+      setTimeout(() => toast.remove(), 250);
     });
 
     function maskCompactDuration(input) {

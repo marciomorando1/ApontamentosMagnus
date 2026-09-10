@@ -107,6 +107,12 @@
       <button class="btn btn-primary" type="button" id="btn-timer">▶ Iniciar timer</button>
       <button class="btn btn-ghost btn-square" type="button" id="btn-add-row">+</button>
       <button class="btn btn-ghost" type="submit" id="btn-save-manual">Salvar manual</button>
+      {% if can_send_erp %}
+        <button class="btn btn-ghost" type="submit" id="btn-send-erp" formnovalidate>Enviar ERP</button>
+        <div id="erp-send-status" style="display:none;" role="status" aria-live="polite">
+          <div class="running-badge"><div class="dot"></div> Processando envio...</div>
+        </div>
+      {% endif %}
       <div id="running-indicator" style="display:none;">
         <div class="running-badge"><div class="dot"></div> Registrando...</div>
       </div>
@@ -137,6 +143,7 @@
       </div>
     </div>
   </template>
+  {{ servicos_por_orcamento|json_script:"servicos-por-orcamento" }}
 {% endblock %}
 
 {% block scripts %}
@@ -144,12 +151,15 @@
     const timerButton = document.getElementById('btn-timer');
     const addRowButton = document.getElementById('btn-add-row');
     const saveManualButton = document.getElementById('btn-save-manual');
+    const sendErpButton = document.getElementById('btn-send-erp');
+    const sendErpStatus = document.getElementById('erp-send-status');
     const timerDisplay = document.getElementById('timer-display');
     const runningIndicator = document.getElementById('running-indicator');
     const startField = document.getElementById('{{ form.hora_inicio.id_for_label }}');
     const endField = document.getElementById('{{ form.hora_fim.id_for_label }}');
     const dateField = document.getElementById('{{ form.data.id_for_label }}');
     const budgetField = document.getElementById('{{ form.orcamento.id_for_label }}');
+    const serviceField = document.getElementById('{{ form.servico.id_for_label }}');
     const budgetHoursField = document.getElementById('orcamento-horas');
     const budgetUsedHoursField = document.getElementById('orcamento-horas-apontadas');
     const budgetAvailableHoursField = document.getElementById('orcamento-horas-disponiveis');
@@ -158,6 +168,7 @@
     const submissionModeField = document.getElementById('submission-mode');
     const manualRows = document.getElementById('manual-rows');
     const manualRowTemplate = document.getElementById('manual-row-template');
+    const servicesByBudget = JSON.parse(document.getElementById('servicos-por-orcamento').textContent);
 
     let timerStart = null;
     let timerInterval = null;
@@ -198,6 +209,19 @@
       budgetHoursField.value = selectedOption?.dataset.horas || '';
       budgetUsedHoursField.value = selectedOption?.dataset.horasApontadas || '';
       budgetAvailableHoursField.value = selectedOption?.dataset.horasDisponiveis || '';
+    }
+
+    function updateServiceOptions() {
+      const selectedService = serviceField.value;
+      const services = servicesByBudget[budgetField.value] || [];
+      serviceField.innerHTML = '';
+      serviceField.appendChild(new Option('— selecione —', ''));
+      services.forEach((service) => {
+        serviceField.appendChild(new Option(service.label, service.value));
+      });
+      if (services.some((service) => service.value === selectedService)) {
+        serviceField.value = selectedService;
+      }
     }
 
     function bindNoLineBreakTextareas(root = document) {
@@ -270,6 +294,19 @@
     saveManualButton.addEventListener('click', () => {
       submissionModeField.value = 'manual';
     });
+    if (sendErpButton) {
+      sendErpButton.addEventListener('click', () => {
+        submissionModeField.value = 'enviar_erp';
+      });
+    }
+    timerForm.addEventListener('submit', () => {
+      if (submissionModeField.value === 'enviar_erp' && sendErpButton && sendErpStatus) {
+        timerForm.setAttribute('aria-busy', 'true');
+        sendErpButton.disabled = true;
+        sendErpButton.textContent = 'Processando...';
+        sendErpStatus.style.display = 'inline-flex';
+      }
+    });
     manualRows.addEventListener('click', (event) => {
       if (event.target.classList.contains('js-remove-row')) {
         event.target.closest('.manual-row').remove();
@@ -278,12 +315,16 @@
 
     startField.addEventListener('change', updateTotal);
     endField.addEventListener('change', updateTotal);
-    budgetField.addEventListener('change', updateBudgetHours);
+    budgetField.addEventListener('change', () => {
+      updateBudgetHours();
+      updateServiceOptions();
+    });
     if (!dateField.value) {
       dateField.value = nowDateValue();
     }
     bindNoLineBreakTextareas();
     updateTotal();
     updateBudgetHours();
+    updateServiceOptions();
   </script>
 {% endblock %}

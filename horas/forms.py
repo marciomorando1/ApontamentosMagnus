@@ -237,6 +237,13 @@ class RegistroForm(forms.ModelForm):
             queryset = Orcamento.objects.filter(Q(ativo=True) | Q(pk=selected_orcamento_id))
         self.fields['orcamento'].queryset = queryset.order_by('codigo')
         self.fields['orcamento'].empty_label = '— selecione —'
+        self.fields['orcamento'].widget.attrs.update(
+            {
+                'data-searchable-select': 'true',
+                'data-search-placeholder': 'Digite para filtrar orcamentos',
+                'data-search-empty': 'Nenhum orcamento encontrado',
+            }
+        )
 
         self.fields['fase'].queryset = Fase.objects.order_by('codigo')
         self.fields['fase'].empty_label = '— selecione —'

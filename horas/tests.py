@@ -352,6 +352,10 @@ class TimerViewTests(AuthenticatedTestCase):
         self.assertContains(response, 'id="orcamento-horas"', html=False)
         self.assertContains(response, 'id="orcamento-horas" placeholder="—" readonly', html=False)
         self.assertContains(response, 'data-horas="20:30"', html=False)
+        self.assertContains(response, 'data-searchable-select="true"', html=False)
+        self.assertContains(response, 'data-search-placeholder="Digite para filtrar orcamentos"', html=False)
+        self.assertContains(response, 'function makeSearchableSelect(select)', html=False)
+        self.assertContains(response, 'makeSearchableSelect(budgetField)', html=False)
         self.assertContains(response, 'function updateBudgetHours()', html=False)
         self.assertContains(response, "budgetField.addEventListener('change', () =>", html=False)
 

@@ -1819,6 +1819,24 @@ class ClientesViewTests(AuthenticatedTestCase):
         self.assertEqual(configuracao.senha_erp, 'Arthur@2026')
         self.assertEqual(configuracao.encryption_erp, 0)
 
+    def test_transporte_erp_reescreve_urls_internas_em_qualquer_porta(self):
+        from horas.views import SeniorErpTransport
+
+        transport = SeniorErpTransport(public_base_url='https://wsadmin.magnus.com.br')
+
+        self.assertEqual(
+            transport._rewrite_url(
+                'http://srvsnr01:8080/g5-senior-services/sapiens_Synccom_magnus_agenda?xsd'
+            ),
+            'https://wsadmin.magnus.com.br/g5-senior-services/sapiens_Synccom_magnus_agenda?xsd',
+        )
+        self.assertEqual(
+            transport._rewrite_url(
+                'http://srvsnr01:8088/g5-senior-services/sapiens_Synccom_magnus_agenda?xsd'
+            ),
+            'https://wsadmin.magnus.com.br/g5-senior-services/sapiens_Synccom_magnus_agenda?xsd',
+        )
+
 
 class OrcamentosViewTests(AuthenticatedTestCase):
     headers_importacao = [

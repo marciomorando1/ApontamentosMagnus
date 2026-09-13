@@ -1021,7 +1021,22 @@ class SeniorErpTransport(Transport):
         self.public_base_url = public_base_url or ERP_CLIENTES_PUBLIC_BASE_URL
 
     def _rewrite_url(self, url):
-        return url.replace(ERP_CLIENTES_INTERNAL_BASE_URL, self.public_base_url)
+        parsed_url = urlparse(url)
+        internal_host = urlparse(ERP_CLIENTES_INTERNAL_BASE_URL).hostname
+        if (parsed_url.hostname or '').lower() != internal_host:
+            return url
+
+        parsed_public_base = urlparse(self.public_base_url)
+        return urlunparse(
+            (
+                parsed_public_base.scheme or parsed_url.scheme,
+                parsed_public_base.netloc,
+                parsed_url.path,
+                parsed_url.params,
+                parsed_url.query,
+                parsed_url.fragment,
+            )
+        )
 
     def load(self, url):
         return super().load(self._rewrite_url(url))

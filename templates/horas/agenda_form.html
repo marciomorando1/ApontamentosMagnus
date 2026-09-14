@@ -133,6 +133,7 @@
       {% endif %}
     </div>
   </div>
+  {{ servicos_por_orcamento|json_script:"servicos-por-orcamento" }}
 {% endblock %}
 
 {% block scripts %}
@@ -147,8 +148,10 @@
     const startTimeField = document.getElementById('{{ form.hora_inicio.id_for_label }}');
     const endTimeField = document.getElementById('{{ form.hora_fim.id_for_label }}');
     const budgetField = document.getElementById('{{ form.orcamento.id_for_label }}');
+    const serviceField = document.getElementById('{{ form.servico.id_for_label }}');
     const clientField = document.getElementById('{{ form.cliente.id_for_label }}');
     const ticketField = document.getElementById('{{ form.numero_chamado.id_for_label }}');
+    const servicesByBudget = JSON.parse(document.getElementById('servicos-por-orcamento').textContent);
 
 
     function normalizeSearchText(value) {
@@ -354,6 +357,19 @@
       }
     }
 
+    function updateServiceOptions() {
+      const selectedService = serviceField.value;
+      const services = servicesByBudget[budgetField.value] || [];
+      serviceField.innerHTML = '';
+      serviceField.appendChild(new Option('\u2014 selecione \u2014', ''));
+      services.forEach((service) => {
+        serviceField.appendChild(new Option(service.label, service.value));
+      });
+      if (services.some((service) => service.value === selectedService)) {
+        serviceField.value = selectedService;
+      }
+    }
+
     maximumHoursField.addEventListener('input', () => maskDurationInput(maximumHoursField));
     maximumHoursField.addEventListener('blur', () => normalizeDurationInput(maximumHoursField));
     quantityHoursField.addEventListener('input', () => {
@@ -383,7 +399,11 @@
       }
 
       budgetField.addEventListener('change', fillBudgetData);
+      budgetField.addEventListener('change', updateServiceOptions);
       fillBudgetData();
+      updateServiceOptions();
+    {% else %}
+      budgetField.addEventListener('change', updateServiceOptions);
     {% endif %}
   </script>
 {% endblock %}

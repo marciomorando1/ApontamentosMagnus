@@ -3610,6 +3610,8 @@ class AgendaViewTests(TestCase):
             nome='Agenda Orcamento',
         )
         self.servico = Servico.objects.create(codigo='AG02', descricao='Agenda')
+        self.outro_servico = Servico.objects.create(codigo='AG03', descricao='Sem vinculo')
+        OrcamentoServico.objects.create(orcamento=self.orcamento, servico=self.servico)
 
     def criar_atividade(self, *, user, criado_por, titulo='Atividade', data_inicio=None, data_fim=None):
         return AgendaAtividade.objects.create(
@@ -4066,6 +4068,46 @@ class AgendaViewTests(TestCase):
         self.assertContains(response, 'if (input.value.trim()) renderList()', html=False)
         self.assertContains(response, "document.createElement('div')", html=False)
         self.assertNotContains(response, "document.createElement('button')", html=False)
+
+    def test_nova_atividade_filtra_servicos_pelo_orcamento_selecionado(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse('horas:agenda_nova'),
+            data={
+                'cliente': 'Cliente Agenda',
+                'numero_chamado': 'CH-200',
+                'orcamento': self.orcamento.pk,
+                'servico': self.outro_servico.pk,
+                'produto': 'ERP',
+                'titulo': 'Servico invalido',
+                'descricao': 'Descricao',
+                'data_inicio': '2026-06-10',
+                'hora_inicio': '09:00',
+                'data_fim': '2026-06-10',
+                'hora_fim': '18:00',
+                'total_horas_maximo': '08:00',
+            },
+        )
+
+        servicos = list(response.context['form'].fields['servico'].queryset)
+        self.assertEqual(servicos, [self.servico])
+        self.assertTrue(response.context['form'].errors['servico'])
+        self.assertFalse(AgendaAtividade.objects.filter(titulo='Servico invalido').exists())
+
+    def test_formulario_agenda_atualiza_servicos_por_orcamento(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('horas:agenda_nova'))
+
+        servicos = list(response.context['form'].fields['servico'].queryset)
+        self.assertEqual(servicos, [])
+        self.assertContains(response, 'servicos-por-orcamento', html=False)
+        self.assertContains(response, 'updateServiceOptions', html=False)
+        self.assertEqual(
+            response.context['servicos_por_orcamento'][str(self.orcamento.pk)],
+            [{'value': str(self.servico.pk), 'label': str(self.servico)}],
+        )
 
     def test_nova_atividade_bloqueia_e_preenche_cliente_e_chamado_pelo_orcamento(self):
         self.client.force_login(self.user)

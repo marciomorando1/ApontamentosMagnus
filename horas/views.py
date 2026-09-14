@@ -1816,6 +1816,18 @@ class AgendaBaseFormView(AuthenticatedViewMixin, SidebarContextMixin, TemplateVi
         context['atividade'] = getattr(self, 'atividade', None)
         context['is_gp'] = _user_is_gp(self.request.user)
         context['agenda_back_url'] = _build_agenda_url(self.month_start, self.selected_user)
+        servicos_por_orcamento = defaultdict(list)
+        for ligacao in OrcamentoServico.objects.select_related('orcamento', 'servico').filter(orcamento__ativo=True):
+            servicos_por_orcamento[str(ligacao.orcamento_id)].append(
+                {
+                    'value': str(ligacao.servico_id),
+                    'label': str(ligacao.servico),
+                }
+            )
+        context['servicos_por_orcamento'] = {
+            orcamento_id: sorted(servicos, key=lambda item: item['label'])
+            for orcamento_id, servicos in servicos_por_orcamento.items()
+        }
         return context
 
 

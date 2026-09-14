@@ -16,6 +16,7 @@ from .models import (
     Fase,
     FolgaFeriado,
     Orcamento,
+    OrcamentoServico,
     Registro,
     Servico,
     SolicitacaoHoras,
@@ -709,8 +710,11 @@ class AgendaAtividadeForm(forms.ModelForm):
                     (self.instance.produto, self.instance.produto),
                 ]
         queryset = Orcamento.objects.filter(ativo=True)
-        if self.instance.pk and self.instance.orcamento_id:
-            queryset = Orcamento.objects.filter(Q(ativo=True) | Q(pk=self.instance.orcamento_id))
+        selected_orcamento_id = self.instance.orcamento_id if self.instance.pk else self.initial.get('orcamento')
+        if self.is_bound:
+            selected_orcamento_id = self.data.get(self.add_prefix('orcamento'))
+        if selected_orcamento_id:
+            queryset = Orcamento.objects.filter(Q(ativo=True) | Q(pk=selected_orcamento_id))
         self.fields['orcamento'].queryset = queryset.order_by('codigo')
         self.fields['orcamento'].empty_label = '— selecione —'
         self.fields['orcamento'].widget.attrs.update(
@@ -721,7 +725,12 @@ class AgendaAtividadeForm(forms.ModelForm):
             }
         )
 
-        self.fields['servico'].queryset = Servico.objects.order_by('codigo')
+        servico_queryset = Servico.objects.none()
+        if selected_orcamento_id:
+            servico_queryset = Servico.objects.filter(
+                orcamentos_vinculados__orcamento_id=selected_orcamento_id
+            ).distinct()
+        self.fields['servico'].queryset = servico_queryset.order_by('codigo')
         self.fields['servico'].empty_label = '— selecione —'
 
         is_gp = bool(
@@ -771,6 +780,11 @@ class AgendaAtividadeForm(forms.ModelForm):
             if not orcamento.codigo_cliente:
                 self.add_error('cliente', 'O orçamento selecionado não possui código do cliente.')
 
+
+        orcamento = cleaned_data.get('orcamento')
+        servico = cleaned_data.get('servico')
+        if orcamento and servico and not OrcamentoServico.objects.filter(orcamento=orcamento, servico=servico).exists():
+            self.add_error('servico', 'Selecione um servico ligado ao orcamento.')
 
         destino_para = cleaned_data.get('destino_para') or AgendaAtividade.DESTINO_INTERNO
         quantidade_horas = cleaned_data.get('quantidade_horas')

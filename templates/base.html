@@ -116,7 +116,7 @@
         <a class="nav-item {% if section == 'estimativas' %}active{% endif %}" href="{% url 'horas:estimativas' %}">
           <span class="nav-icon">E</span> Estimativas
         </a>
-        {% if is_gp %}
+        {% if is_admin %}
           <a class="nav-item {% if section == 'configuracoes' %}active{% endif %}" href="{% url 'horas:configuracoes' %}">
             <span class="nav-icon">⚙</span> Configurações
           </a>

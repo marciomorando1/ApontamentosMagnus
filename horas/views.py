@@ -1762,6 +1762,13 @@ class GerenteProjetosRequiredMixin:
         return super().dispatch(request, *args, **kwargs)
 
 
+class AdministradorRequiredMixin:
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated and not _user_is_admin(request.user):
+            raise PermissionDenied
+        return super().dispatch(request, *args, **kwargs)
+
+
 class DashboardView(AuthenticatedViewMixin, RedirectView):
     pattern_name = 'horas:timer'
 
@@ -2512,7 +2519,7 @@ class SolicitacaoHorasDecisaoView(
 
 
 class ConfiguracoesView(
-    GerenteProjetosRequiredMixin,
+    AdministradorRequiredMixin,
     AuthenticatedViewMixin,
     SidebarContextMixin,
     TemplateView,

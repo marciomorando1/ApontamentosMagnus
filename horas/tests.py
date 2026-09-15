@@ -1876,6 +1876,9 @@ class ClientesViewTests(AuthenticatedTestCase):
         )
 
     def test_configuracoes_salva_dados_do_erp(self):
+        self.user.profile.is_administrador = True
+        self.user.profile.save(update_fields=['is_administrador'])
+
         response = self.client.post(
             reverse('horas:configuracoes'),
             data={
@@ -1893,6 +1896,17 @@ class ClientesViewTests(AuthenticatedTestCase):
         self.assertEqual(configuracao.usuario_erp, 'marcio.morando')
         self.assertEqual(configuracao.senha_erp, 'Arthur@2026')
         self.assertEqual(configuracao.encryption_erp, 0)
+
+    def test_gp_sem_administrador_nao_acessa_configuracoes(self):
+        response = self.client.get(reverse('horas:configuracoes'))
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_gp_sem_administrador_nao_ve_menu_configuracoes(self):
+        response = self.client.get(reverse('horas:timer'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, reverse('horas:configuracoes'))
 
     def test_transporte_erp_reescreve_urls_internas_em_qualquer_porta(self):
         from horas.views import SeniorErpTransport

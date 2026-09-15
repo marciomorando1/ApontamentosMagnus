@@ -14,6 +14,19 @@
       <label for="res-ate">Até</label>
       <input type="date" id="res-ate" name="ate" value="{{ filtros.ate }}">
     </div>
+    {% if can_filter_usuario %}
+      <div class="field">
+        <label for="res-usuario">Usuário</label>
+        <select id="res-usuario" name="usuario">
+          <option value="">Todos</option>
+          {% for usuario in usuarios_filtro %}
+            <option value="{{ usuario.pk }}" {% if filtros.usuario == usuario.pk|stringformat:'s' %}selected{% endif %}>
+              {{ usuario.get_full_name|default:usuario.username }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+    {% endif %}
     <button class="btn btn-ghost btn-sm" type="submit">Atualizar</button>
   </form>
 

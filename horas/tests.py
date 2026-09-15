@@ -1490,6 +1490,77 @@ class ResumoViewTests(AuthenticatedTestCase):
         self.assertEqual(response.context['stats'][1][1], 1)
         self.assertEqual(len(response.context['detalhes_orcamento']), 1)
 
+    def test_resumo_usuario_comum_nao_exibe_filtro_usuario(self):
+        response = self.client.get(reverse('horas:resumo'))
+
+        self.assertFalse(response.context['can_filter_usuario'])
+        self.assertNotContains(response, 'id="res-usuario"')
+
+    def test_resumo_usuario_comum_ignora_filtro_usuario_na_url(self):
+        self.criar_registro(
+            orcamento=self.orcamento,
+            data=date.today(),
+            hora_inicio='08:00',
+            hora_fim='10:00',
+            descricao='Meu resumo',
+        )
+        self.criar_registro(
+            user=self.other_user,
+            orcamento=self.orcamento,
+            data=date.today(),
+            hora_inicio='08:00',
+            hora_fim='12:00',
+            descricao='Resumo de outro usuario',
+        )
+
+        response = self.client.get(
+            reverse('horas:resumo'),
+            {'usuario': str(self.other_user.pk)},
+        )
+
+        self.assertEqual(response.context['stats'][0][1], '2h00')
+        self.assertEqual(response.context['stats'][1][1], 1)
+        self.assertEqual(response.context['filtros']['usuario'], '')
+
+    def test_resumo_gerente_filtra_por_usuario(self):
+        self.user.profile.is_gerente_projetos = True
+        self.user.profile.save(update_fields=['is_gerente_projetos'])
+        self.criar_registro(
+            orcamento=self.orcamento,
+            data=date.today(),
+            hora_inicio='08:00',
+            hora_fim='10:00',
+            descricao='Resumo do gerente',
+        )
+        self.criar_registro(
+            user=self.other_user,
+            orcamento=self.orcamento,
+            data=date.today(),
+            hora_inicio='08:00',
+            hora_fim='12:00',
+            descricao='Resumo de outro usuario',
+        )
+
+        response = self.client.get(
+            reverse('horas:resumo'),
+            {'usuario': str(self.other_user.pk)},
+        )
+
+        self.assertTrue(response.context['can_filter_usuario'])
+        self.assertContains(response, 'id="res-usuario"')
+        self.assertEqual(response.context['stats'][0][1], '4h00')
+        self.assertEqual(response.context['stats'][1][1], 1)
+        self.assertEqual(response.context['filtros']['usuario'], str(self.other_user.pk))
+
+    def test_resumo_administrador_exibe_filtro_usuario(self):
+        self.user.profile.is_administrador = True
+        self.user.profile.save(update_fields=['is_administrador'])
+
+        response = self.client.get(reverse('horas:resumo'))
+
+        self.assertTrue(response.context['can_filter_usuario'])
+        self.assertContains(response, 'id="res-usuario"')
+
 
 class AuthenticationFlowTests(TestCase):
     def test_redireciona_para_login_quando_nao_autenticado(self):

@@ -337,8 +337,12 @@ def _agenda_filter_context(month_start, selected_users):
     }
 
 
-def _filter_registros(request, *, allow_usuario_filter=False):
-    can_filter_usuario = allow_usuario_filter and _user_can_export_csv(request.user)
+def _filter_registros(request, *, allow_usuario_filter=False, usuario_filter_permission=None):
+    can_filter_usuario = allow_usuario_filter and (
+        usuario_filter_permission(request.user)
+        if usuario_filter_permission
+        else _user_can_export_csv(request.user)
+    )
     queryset = _base_registros_queryset(request.user, include_all_users=can_filter_usuario)
     data_inicial = _parse_date(request.GET.get('de'))
     data_final = _parse_date(request.GET.get('ate'))
@@ -2355,7 +2359,12 @@ class ResumoView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        registros, data_inicial, data_final, _, _ = _filter_registros(self.request)
+        registros, data_inicial, data_final, _, usuario_id = _filter_registros(
+            self.request,
+            allow_usuario_filter=True,
+            usuario_filter_permission=_user_is_gp,
+        )
+        can_filter_usuario = _user_is_gp(self.request.user)
         registros_list = list(registros)
         total_horas = sum(registro.total_horas for registro in registros_list)
         dias_trabalhados = len({registro.data for registro in registros_list})
@@ -2385,9 +2394,12 @@ class ResumoView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
             ('Média por dia', _format_decimal_hours(media_diaria)),
         ]
         context['detalhes_orcamento'] = detalhes
+        context['usuarios_filtro'] = User.objects.order_by('username') if can_filter_usuario else []
+        context['can_filter_usuario'] = can_filter_usuario
         context['filtros'] = {
             'de': data_inicial.isoformat() if data_inicial else '',
             'ate': data_final.isoformat() if data_final else '',
+            'usuario': usuario_id or '',
         }
         return context
 

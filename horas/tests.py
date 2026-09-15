@@ -1561,6 +1561,29 @@ class ResumoViewTests(AuthenticatedTestCase):
         self.assertTrue(response.context['can_filter_usuario'])
         self.assertContains(response, 'id="res-usuario"')
 
+    def test_usuario_terceiro_ve_apenas_menus_basicos(self):
+        self.user.profile.is_terceiro = True
+        self.user.profile.is_gerente_projetos = True
+        self.user.profile.is_administrador = True
+        self.user.profile.save(update_fields=['is_terceiro', 'is_gerente_projetos', 'is_administrador'])
+
+        response = self.client.get(reverse('horas:timer'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse('horas:timer'))
+        self.assertContains(response, reverse('horas:agenda'))
+        self.assertContains(response, reverse('horas:registros'))
+        self.assertContains(response, reverse('horas:resumo'))
+        self.assertNotContains(response, reverse('horas:folgas_feriados'))
+        self.assertNotContains(response, reverse('horas:solicitacoes_horas'))
+        self.assertNotContains(response, reverse('horas:clientes'))
+        self.assertNotContains(response, reverse('horas:orcamentos'))
+        self.assertNotContains(response, reverse('horas:fases'))
+        self.assertNotContains(response, reverse('horas:servicos'))
+        self.assertNotContains(response, reverse('horas:servico_orcamento'))
+        self.assertNotContains(response, reverse('horas:estimativas'))
+        self.assertNotContains(response, reverse('horas:configuracoes'))
+
 
 class AuthenticationFlowTests(TestCase):
     def test_redireciona_para_login_quando_nao_autenticado(self):
@@ -1671,6 +1694,7 @@ class AuthenticationFlowTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'must_change_password')
         self.assertContains(response, 'is_administrador')
+        self.assertContains(response, 'is_terceiro')
         self.assertContains(response, 'is_pmo')
         self.assertContains(response, 'exportacsv')
         self.assertContains(response, 'envia_erp')
@@ -1711,6 +1735,7 @@ class AuthenticationFlowTests(TestCase):
         user = User.objects.get(username='usuario-com-codigo')
         self.assertEqual(user.profile.codigoerp, 12345)
         self.assertFalse(user.profile.is_administrador)
+        self.assertFalse(user.profile.is_terceiro)
         self.assertFalse(user.profile.envia_erp)
 
     def test_admin_pode_marcar_usuario_como_administrador_ao_criar(self):
@@ -3579,6 +3604,7 @@ class UserProfileTests(TestCase):
         self.assertEqual(user.profile.codigoerp, 0)
         self.assertFalse(user.profile.is_gerente_projetos)
         self.assertFalse(user.profile.is_administrador)
+        self.assertFalse(user.profile.is_terceiro)
         self.assertFalse(user.profile.is_pmo)
         self.assertFalse(user.profile.exportacsv)
         self.assertFalse(user.profile.envia_erp)

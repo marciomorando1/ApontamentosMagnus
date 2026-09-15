@@ -198,6 +198,7 @@ class UserProfile(models.Model):
     )
     is_gerente_projetos = models.BooleanField(default=False)
     is_administrador = models.BooleanField('Administrador', default=False)
+    is_terceiro = models.BooleanField(default=False)
     is_pmo = models.BooleanField(default=False)
     exportacsv = models.BooleanField('Exporta CSV', default=False)
     envia_erp = models.BooleanField('Envia ERP', default=False)
@@ -213,6 +214,8 @@ class UserProfile(models.Model):
             roles.append('GP')
         if self.is_administrador:
             roles.append('Administrador')
+        if self.is_terceiro:
+            roles.append('Terceiro')
         if self.is_pmo:
             roles.append('PMO')
         role = ', '.join(roles) if roles else 'Usuario'

@@ -201,6 +201,11 @@ def _user_is_admin(user):
     return profile.is_administrador
 
 
+def _user_is_terceiro(user):
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+    return profile.is_terceiro
+
+
 def _user_is_gp(user):
     profile, _ = UserProfile.objects.get_or_create(user=user)
     return profile.is_gerente_projetos or profile.is_administrador
@@ -1709,6 +1714,7 @@ class SidebarContextMixin:
         context['orcamentos_ativos'] = Orcamento.objects.filter(ativo=True).order_by('codigo')
         context['is_gp'] = _user_is_gp(self.request.user)
         context['is_admin'] = _user_is_admin(self.request.user)
+        context['is_terceiro'] = _user_is_terceiro(self.request.user)
         context['pendencias_aprovacao_count'] = 0
         if context['is_gp']:
             context['pendencias_aprovacao_count'] = SolicitacaoHoras.objects.filter(

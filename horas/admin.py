@@ -25,7 +25,7 @@ class UserProfileInline(admin.StackedInline):
     can_delete = False
     extra = 0
     fk_name = 'user'
-    fields = ('codigoerp', 'is_gerente_projetos', 'is_administrador', 'is_pmo', 'exportacsv', 'envia_erp', 'must_change_password')
+    fields = ('codigoerp', 'is_gerente_projetos', 'is_administrador', 'is_terceiro', 'is_pmo', 'exportacsv', 'envia_erp', 'must_change_password')
 
 
 class UserAdmin(DjangoUserAdmin):
@@ -179,8 +179,8 @@ class SolicitacaoHorasAdmin(admin.ModelAdmin):
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
-    list_display = ('user', 'codigoerp', 'is_gerente_projetos', 'is_administrador', 'is_pmo', 'exportacsv', 'envia_erp', 'must_change_password')
-    list_filter = ('is_gerente_projetos', 'is_administrador', 'is_pmo', 'exportacsv', 'envia_erp', 'must_change_password')
+    list_display = ('user', 'codigoerp', 'is_gerente_projetos', 'is_administrador', 'is_terceiro', 'is_pmo', 'exportacsv', 'envia_erp', 'must_change_password')
+    list_filter = ('is_gerente_projetos', 'is_administrador', 'is_terceiro', 'is_pmo', 'exportacsv', 'envia_erp', 'must_change_password')
     search_fields = ('user__username', 'codigoerp')
 
 

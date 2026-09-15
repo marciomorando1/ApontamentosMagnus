@@ -77,19 +77,23 @@
         <a class="nav-item {% if section == 'agenda' %}active{% endif %}" href="{% url 'horas:agenda' %}">
           <span class="nav-icon">A</span> Agenda
         </a>
+        {% if not is_terceiro %}
         <a class="nav-item {% if section == 'folgas_feriados' %}active{% endif %}" href="{% url 'horas:folgas_feriados' %}">
           <span class="nav-icon">F</span> Folgas/Feriados
         </a>
+        {% endif %}
         <a class="nav-item {% if section == 'registros' %}active{% endif %}" href="{% url 'horas:registros' %}">
           <span class="nav-icon">📋</span> Registros
         </a>
         <a class="nav-item {% if section == 'resumo' %}active{% endif %}" href="{% url 'horas:resumo' %}">
           <span class="nav-icon">📊</span> Resumo
         </a>
+        {% if not is_terceiro %}
         <a class="nav-item {% if section == 'solicitacoes_horas' %}active{% endif %}" href="{% url 'horas:solicitacoes_horas' %}">
           <span class="nav-icon">H+</span> Solicitar Horas Orçamento
         </a>
-        {% if is_gp %}
+        {% endif %}
+        {% if is_gp and not is_terceiro %}
           <a class="nav-item {% if section == 'solicitacoes_horas_pendentes' %}active{% endif %}{% if pendencias_aprovacao_count %} has-pending{% endif %}" href="{% url 'horas:solicitacoes_horas_pendentes' %}">
             <span class="nav-icon">!</span>
             <span class="nav-label">Pendências para Aprovação</span>
@@ -113,10 +117,12 @@
             <span class="nav-icon">SO</span> Serviço x Orc
           </a>
         {% endif %}
+        {% if not is_terceiro %}
         <a class="nav-item {% if section == 'estimativas' %}active{% endif %}" href="{% url 'horas:estimativas' %}">
           <span class="nav-icon">E</span> Estimativas
         </a>
-        {% if is_admin %}
+        {% endif %}
+        {% if is_admin and not is_terceiro %}
           <a class="nav-item {% if section == 'configuracoes' %}active{% endif %}" href="{% url 'horas:configuracoes' %}">
             <span class="nav-icon">⚙</span> Configurações
           </a>

@@ -109,15 +109,13 @@
       <button class="btn btn-ghost" type="submit" id="btn-save-manual">Salvar manual</button>
       {% if can_send_erp %}
         <button class="btn btn-ghost" type="submit" id="btn-send-erp" formnovalidate>Enviar ERP</button>
-        <div id="erp-send-status" style="display:none;" role="status" aria-live="polite">
-          <div class="running-badge"><div class="dot"></div> Processando envio...</div>
-        </div>
       {% endif %}
       <div id="running-indicator" style="display:none;">
         <div class="running-badge"><div class="dot"></div> Registrando...</div>
       </div>
     </div>
   </form>
+  {% if can_send_erp %}{% include 'horas/_erp_processing_overlay.html' %}{% endif %}
 
   <template id="manual-row-template">
     <div class="manual-row">
@@ -152,7 +150,7 @@
     const addRowButton = document.getElementById('btn-add-row');
     const saveManualButton = document.getElementById('btn-save-manual');
     const sendErpButton = document.getElementById('btn-send-erp');
-    const sendErpStatus = document.getElementById('erp-send-status');
+    const sendErpOverlay = document.querySelector('[data-erp-processing-overlay]');
     const timerDisplay = document.getElementById('timer-display');
     const runningIndicator = document.getElementById('running-indicator');
     const startField = document.getElementById('{{ form.hora_inicio.id_for_label }}');
@@ -442,12 +440,11 @@
         submissionModeField.value = 'enviar_erp';
       });
     }
-    timerForm.addEventListener('submit', () => {
-      if (submissionModeField.value === 'enviar_erp' && sendErpButton && sendErpStatus) {
+    timerForm.addEventListener('submit', (event) => {
+      if (!event.defaultPrevented && submissionModeField.value === 'enviar_erp' && sendErpButton && sendErpOverlay) {
         timerForm.setAttribute('aria-busy', 'true');
         sendErpButton.disabled = true;
-        sendErpButton.textContent = 'Processando...';
-        sendErpStatus.style.display = 'inline-flex';
+        sendErpOverlay.hidden = false;
       }
     });
     manualRows.addEventListener('click', (event) => {

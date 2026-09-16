@@ -77,7 +77,7 @@
             <td class="desc">{{ registro.descricao|default:'—' }}</td>
             <td>
               {% if can_processar_registro and registro.processado != 'S' %}
-                <form method="post" action="{% url 'horas:registro_processar' registro.pk %}?de={{ filtros.de }}&ate={{ filtros.ate }}&orcamento={{ filtros.orcamento }}{% if can_filter_usuario %}&usuario={{ filtros.usuario }}{% endif %}">
+                <form method="post" action="{% url 'horas:registro_processar' registro.pk %}?de={{ filtros.de }}&ate={{ filtros.ate }}&orcamento={{ filtros.orcamento }}{% if can_filter_usuario %}&usuario={{ filtros.usuario }}{% endif %}" data-erp-process-form>
                   {% csrf_token %}
                   <button
                     class="btn-inline btn-ok {% if registro.processado == 'S' %}is-processed{% else %}is-pending{% endif %}"
@@ -120,4 +120,27 @@
       </tbody>
     </table>
   </div>
+
+  {% include 'horas/_erp_processing_overlay.html' %}
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    document.querySelectorAll('[data-erp-process-form]').forEach((form) => {
+      form.addEventListener('submit', () => {
+        const overlay = document.querySelector('[data-erp-processing-overlay]');
+        const button = form.querySelector('button[type="submit"]');
+
+        form.setAttribute('aria-busy', 'true');
+        if (button) {
+          button.disabled = true;
+          button.setAttribute('aria-label', 'Processando envio ao ERP');
+        }
+        if (overlay) {
+          overlay.hidden = false;
+          overlay.classList.add('is-open');
+        }
+      });
+    });
+  </script>
 {% endblock %}

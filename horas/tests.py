@@ -373,8 +373,8 @@ class TimerViewTests(AuthenticatedTestCase):
 
         self.assertContains(response, 'Enviar ERP')
         self.assertContains(response, 'id="btn-send-erp" formnovalidate', html=False)
-        self.assertContains(response, 'id="erp-send-status"', html=False)
-        self.assertContains(response, 'Processando envio...')
+        self.assertContains(response, 'data-erp-processing-overlay', html=False)
+        self.assertContains(response, 'Enviando apontamento ao ERP')
         self.assertContains(response, "submissionModeField.value = 'enviar_erp'", html=False)
         self.assertContains(response, "sendErpButton.disabled = true", html=False)
 
@@ -909,6 +909,22 @@ class RegistrosViewTests(AuthenticatedTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Sem fase')
+
+    def test_registros_exibe_feedback_de_processamento_erp(self):
+        self.user.profile.exportacsv = True
+        self.user.profile.envia_erp = True
+        self.user.profile.save(update_fields=['exportacsv', 'envia_erp'])
+        self.criar_registro(
+            orcamento=self.orcamento,
+            data=date.today(),
+            descricao='Pendente ERP',
+        )
+
+        response = self.client.get(reverse('horas:registros'))
+
+        self.assertContains(response, 'data-erp-process-form', html=False)
+        self.assertContains(response, 'data-erp-processing-overlay', html=False)
+        self.assertContains(response, 'Enviando apontamento ao ERP')
 
     def test_registros_carrega_filtros_com_data_atual_por_padrao(self):
         self.criar_registro(

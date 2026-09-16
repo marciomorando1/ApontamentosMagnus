@@ -1,0 +1,48 @@
+<style>
+  .erp-processing-backdrop[hidden] { display: none !important; }
+  .erp-processing-backdrop {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 10000 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 24px !important;
+    background: rgba(8, 17, 31, 0.55) !important;
+  }
+  .erp-processing-dialog {
+    width: min(360px, 100%) !important;
+    padding: 32px 24px !important;
+    border: 1px solid var(--border, #d6dee8) !important;
+    border-radius: 8px !important;
+    background: var(--surface, #fff) !important;
+    color: var(--text, #0f172a) !important;
+    text-align: center !important;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35) !important;
+  }
+  .erp-processing-spinner {
+    box-sizing: border-box !important;
+    display: block !important;
+    width: 72px !important;
+    height: 72px !important;
+    margin: 0 auto 20px !important;
+    border: 8px solid #d7f8e5 !important;
+    border-top-color: #28bd91 !important;
+    border-right-color: #69dfa9 !important;
+    border-radius: 50% !important;
+    background: none !important;
+    -webkit-mask: none !important;
+    mask: none !important;
+    animation: erp-spinner-rotate 0.8s linear infinite !important;
+  }
+  @keyframes erp-spinner-rotate { to { transform: rotate(360deg); } }
+  .erp-processing-title { font-size: 16px; font-weight: 600; }
+  .erp-processing-text { margin-top: 8px; font-size: 13px; color: var(--muted, #64748b); }
+</style>
+<div class="erp-processing-backdrop" data-erp-processing-overlay hidden>
+  <div class="erp-processing-dialog" role="status" aria-live="polite" aria-label="Enviando apontamento ao ERP">
+    <div class="erp-processing-spinner" aria-hidden="true"></div>
+    <div class="erp-processing-title">Enviando apontamento ao ERP</div>
+    <div class="erp-processing-text">Aguarde enquanto o registro é processado.</div>
+  </div>
+</div>

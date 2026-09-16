@@ -18,4 +18,4 @@ RUN chmod +x /app/docker/entrypoint.sh
 EXPOSE 8000
 
 ENTRYPOINT ["/app/docker/entrypoint.sh"]
-CMD ["gunicorn", "magnusRotinas_django.wsgi:application", "--bind", "0.0.0.0:8000", "--log-file", "-"]
+CMD ["gunicorn", "magnusRotinas_django.wsgi:application", "--bind", "0.0.0.0:8000", "--timeout", "90", "--log-file", "-"]

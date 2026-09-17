@@ -2187,7 +2187,8 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         self.assertFalse(Orcamento.objects.filter(codigo='503').exists())
 
     @patch('horas.views.ZeepClient')
-    def test_busca_orcamentos_erp_chama_porta_buscar_orcamentos(self, zeep_client):
+    @patch('horas.views.SeniorErpTransport')
+    def test_busca_orcamentos_erp_chama_porta_buscar_orcamentos(self, erp_transport, zeep_client):
         from horas.views import _buscar_orcamentos_erp
 
         ConfiguracaoSistema.objects.update_or_create(
@@ -2223,6 +2224,8 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         self.assertEqual(orcamentos[0]['codigo_responsavel'], '777')
         self.assertEqual(orcamentos[0]['horas'], Decimal('12'))
         self.assertEqual(orcamentos[0]['horas_apontadas'], Decimal('1.5'))
+        self.assertEqual(erp_transport.call_args.kwargs['timeout'], 30)
+        self.assertEqual(erp_transport.call_args.kwargs['operation_timeout'], 60)
         zeep_client.return_value.service.buscarOrcamentos.assert_called_once_with(
             user='usuario-erp',
             password='senha-erp',

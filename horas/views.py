@@ -79,6 +79,7 @@ User = get_user_model()
 logger = logging.getLogger(__name__)
 ERP_CLIENTES_WSDL_URL = 'https://wsadmin.magnus.com.br/g5-senior-services/sapiens_Synccom_magnus_agenda?wsdl'
 ERP_CLIENTES_TIMEOUT = 30
+ERP_ORCAMENTOS_TIMEOUT = 60
 ERP_CLIENTES_INTERNAL_BASE_URL = 'http://srvsnr01:8088'
 ERP_CLIENTES_PUBLIC_BASE_URL = 'https://wsadmin.magnus.com.br'
 ERP_CLIENTES_SERVICE_PATH = '/g5-senior-services/sapiens_Synccom_magnus_agenda'
@@ -1085,7 +1086,7 @@ def _buscar_orcamentos_erp():
     transport = SeniorErpTransport(
         session=session,
         timeout=ERP_CLIENTES_TIMEOUT,
-        operation_timeout=ERP_CLIENTES_TIMEOUT,
+        operation_timeout=ERP_ORCAMENTOS_TIMEOUT,
         public_base_url=_erp_public_base_url(configuracao),
     )
     client = ZeepClient(_erp_wsdl_url(configuracao), transport=transport)

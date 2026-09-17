@@ -2188,7 +2188,7 @@ class OrcamentosViewTests(AuthenticatedTestCase):
 
     @patch('horas.views.ZeepClient')
     @patch('horas.views.SeniorErpTransport')
-    def test_busca_orcamentos_erp_chama_porta_buscar_orcamentos(self, erp_transport, zeep_client):
+    def test_busca_orcamentos_erp_chama_porta_buscar_orcamentos_2(self, erp_transport, zeep_client):
         from horas.views import _buscar_orcamentos_erp
 
         ConfiguracaoSistema.objects.update_or_create(
@@ -2200,7 +2200,7 @@ class OrcamentosViewTests(AuthenticatedTestCase):
                 'encryption_erp': 0,
             },
         )
-        zeep_client.return_value.service.buscarOrcamentos.return_value = {
+        zeep_client.return_value.service.buscarOrcamentos_2.return_value = {
             'orcamentos': [
                 {
                     'numOrc': '700',
@@ -2226,7 +2226,7 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         self.assertEqual(orcamentos[0]['horas_apontadas'], Decimal('1.5'))
         self.assertEqual(erp_transport.call_args.kwargs['timeout'], 30)
         self.assertEqual(erp_transport.call_args.kwargs['operation_timeout'], 60)
-        zeep_client.return_value.service.buscarOrcamentos.assert_called_once_with(
+        zeep_client.return_value.service.buscarOrcamentos_2.assert_called_once_with(
             user='usuario-erp',
             password='senha-erp',
             encryption=0,

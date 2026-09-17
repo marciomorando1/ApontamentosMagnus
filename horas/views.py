@@ -1090,7 +1090,7 @@ def _buscar_orcamentos_erp():
         public_base_url=_erp_public_base_url(configuracao),
     )
     client = ZeepClient(_erp_wsdl_url(configuracao), transport=transport)
-    response = client.service.buscarOrcamentos(
+    response = client.service.buscarOrcamentos_2(
         user=configuracao.usuario_erp,
         password=configuracao.senha_erp,
         encryption=configuracao.encryption_erp,

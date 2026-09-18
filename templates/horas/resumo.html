@@ -41,6 +41,7 @@
 
   <div class="section-header">
     <div class="section-label">Por orçamento</div>
+    <a class="btn btn-ghost btn-sm" href="{% url 'horas:resumo_exportar_pdf' %}?{{ request.GET.urlencode }}">Exportar PDF</a>
   </div>
   <div class="table-wrap">
     <table>

@@ -12,8 +12,13 @@ from pathlib import Path
 from pprint import pformat
 from urllib.parse import urlparse, urlencode, urlunparse
 from xml.etree import ElementTree as ET
+from xml.sax.saxutils import escape
 
 import requests
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model
@@ -2368,6 +2373,21 @@ class RegistroProcessarView(View):
         return redirect(destino)
 
 
+def _resumo_por_orcamento(registros):
+    por_orcamento = defaultdict(lambda: {'count': 0, 'hours': 0, 'codigo': '', 'nome': ''})
+    for registro in registros:
+        item = por_orcamento[registro.orcamento_id]
+        item['codigo'] = registro.orcamento.codigo
+        item['nome'] = registro.orcamento.nome
+        item['count'] += 1
+        item['hours'] += registro.total_horas
+
+    detalhes = sorted(por_orcamento.values(), key=lambda item: item['hours'], reverse=True)
+    for item in detalhes:
+        item['total_formatado'] = _format_decimal_hours(item['hours'])
+    return detalhes
+
+
 class ResumoView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
     template_name = 'horas/resumo.html'
 
@@ -2384,22 +2404,6 @@ class ResumoView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
         dias_trabalhados = len({registro.data for registro in registros_list})
         media_diaria = total_horas / dias_trabalhados if dias_trabalhados else 0
 
-        por_orcamento = defaultdict(lambda: {'count': 0, 'hours': 0, 'codigo': 'â€”', 'nome': ''})
-        for registro in registros_list:
-            item = por_orcamento[registro.orcamento_id]
-            item['codigo'] = registro.orcamento.codigo
-            item['nome'] = registro.orcamento.nome
-            item['count'] += 1
-            item['hours'] += registro.total_horas
-
-        detalhes = sorted(
-            por_orcamento.values(),
-            key=lambda item: item['hours'],
-            reverse=True,
-        )
-        for item in detalhes:
-            item['total_formatado'] = _format_decimal_hours(item['hours'])
-
         context['section'] = 'resumo'
         context['stats'] = [
             ('Total no período', _format_decimal_hours(total_horas)),
@@ -2407,7 +2411,7 @@ class ResumoView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
             ('Dias trabalhados', dias_trabalhados),
             ('Média por dia', _format_decimal_hours(media_diaria)),
         ]
-        context['detalhes_orcamento'] = detalhes
+        context['detalhes_orcamento'] = _resumo_por_orcamento(registros_list)
         context['usuarios_filtro'] = User.objects.order_by('username') if can_filter_usuario else []
         context['can_filter_usuario'] = can_filter_usuario
         context['filtros'] = {
@@ -2416,6 +2420,73 @@ class ResumoView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
             'usuario': usuario_id or '',
         }
         return context
+
+
+@login_required
+def exportar_resumo_pdf(request):
+    registros, data_inicial, data_final, _, _ = _filter_registros(
+        request,
+        allow_usuario_filter=True,
+        usuario_filter_permission=_user_is_gp,
+    )
+    detalhes = _resumo_por_orcamento(registros)
+    buffer = BytesIO()
+    documento = SimpleDocTemplate(
+        buffer, pagesize=A4, rightMargin=32, leftMargin=32, topMargin=36, bottomMargin=36,
+    )
+    titulo = ParagraphStyle(
+        'titulo', fontName='Helvetica-Bold', fontSize=16, leading=20,
+        textColor=colors.HexColor('#23334A'),
+    )
+    texto = ParagraphStyle(
+        'texto', fontName='Helvetica', fontSize=9, leading=13,
+        textColor=colors.HexColor('#40516A'),
+    )
+    cabecalho = ParagraphStyle('cabecalho', parent=texto, fontName='Helvetica-Bold', fontSize=8)
+    periodo = (
+        f"De {data_inicial:%d/%m/%Y}" if data_inicial else 'Início: não informado'
+    ) + '  |  ' + (
+        f"Até {data_final:%d/%m/%Y}" if data_final else 'Fim: não informado'
+    )
+    linhas = [[Paragraph(label, cabecalho) for label in ('Orçamento', 'Nome', 'Registros', 'Total horas')]]
+    for item in detalhes:
+        linhas.append([
+            Paragraph(escape(str(item['codigo'])), texto),
+            Paragraph(escape(item['nome'] or '-'), texto),
+            str(item['count']),
+            item['total_formatado'],
+        ])
+    if not detalhes:
+        linhas.append(['', Paragraph('Nenhum dado no período.', texto), '', ''])
+    linhas.append(['', '', '', _format_decimal_hours(sum(item['hours'] for item in detalhes))])
+
+    tabela = Table(linhas, colWidths=[90, 260, 75, 106], repeatRows=1, hAlign='LEFT')
+    tabela.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#EAF0F6')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F6F9FC')]),
+        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#23334A')),
+        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 1), (-1, -1), 9),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('LINEBELOW', (0, 0), (-1, 0), 0.5, colors.HexColor('#CAD5E2')),
+        ('LEFTPADDING', (0, 0), (-1, -1), 9),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 9),
+        ('TOPPADDING', (0, 0), (-1, -1), 9),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 9),
+        ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#EAF0F6')),
+        ('LINEABOVE', (0, -1), (-1, -1), 0.5, colors.HexColor('#CAD5E2')),
+        ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+    ]))
+    documento.build([
+        Paragraph('Resumo por orçamento', titulo),
+        Spacer(1, 8),
+        Paragraph(periodo, texto),
+        Spacer(1, 18),
+        tabela,
+    ])
+    response = HttpResponse(buffer.getvalue(), content_type='application/pdf')
+    response['Content-Disposition'] = 'attachment; filename="resumo_orcamentos.pdf"'
+    return response
 
 
 class SolicitacoesHorasView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):

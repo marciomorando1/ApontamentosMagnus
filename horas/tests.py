@@ -1506,6 +1506,80 @@ class ResumoViewTests(AuthenticatedTestCase):
         self.assertEqual(response.context['stats'][1][1], 1)
         self.assertEqual(len(response.context['detalhes_orcamento']), 1)
 
+    def test_pdf_resumo_respeita_periodo_e_usuario(self):
+        from io import BytesIO
+
+        from pypdf import PdfReader
+
+        self.criar_registro(
+            orcamento=self.orcamento,
+            data=date(2026, 9, 10),
+            hora_inicio='08:00',
+            hora_fim='09:30',
+            descricao='Dentro do período',
+        )
+        outro_orcamento = Orcamento.objects.create(codigo='17276', nome='Outro projeto')
+        self.criar_registro(
+            orcamento=outro_orcamento,
+            data=date(2026, 9, 10),
+            hora_inicio='10:00',
+            hora_fim='10:30',
+            descricao='Segundo orçamento',
+        )
+        self.criar_registro(
+            orcamento=self.orcamento,
+            data=date(2026, 9, 11),
+            hora_inicio='08:00',
+            hora_fim='10:00',
+            descricao='Fora do período',
+        )
+        self.criar_registro(
+            user=self.other_user,
+            orcamento=self.orcamento,
+            data=date(2026, 9, 10),
+            hora_inicio='08:00',
+            hora_fim='12:00',
+            descricao='Outro usuário',
+        )
+
+        response = self.client.get(
+            reverse('horas:resumo_exportar_pdf'),
+            {'de': '2026-09-10', 'ate': '2026-09-10', 'usuario': str(self.other_user.pk)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+        self.assertIn('attachment;', response['Content-Disposition'])
+        self.assertTrue(response.content.startswith(b'%PDF'))
+        texto = '\n'.join(page.extract_text() for page in PdfReader(BytesIO(response.content)).pages)
+        self.assertIn('De 10/09/2026', texto)
+        self.assertIn('Até 10/09/2026', texto)
+        self.assertIn('17275', texto)
+        self.assertIn('Projeto teste', texto)
+        self.assertIn('Outro projeto', texto)
+        self.assertIn('1h30', texto)
+        self.assertIn('0h30', texto)
+        self.assertNotIn('Total geral', texto)
+        self.assertIn('2h00', texto)
+        self.assertNotIn('4h00', texto)
+        self.assertNotIn('3h30', texto)
+
+        self.user.profile.is_gerente_projetos = True
+        self.user.profile.save(update_fields=['is_gerente_projetos'])
+        response = self.client.get(
+            reverse('horas:resumo_exportar_pdf'),
+            {'de': '2026-09-10', 'ate': '2026-09-10', 'usuario': str(self.other_user.pk)},
+        )
+        texto = '\n'.join(page.extract_text() for page in PdfReader(BytesIO(response.content)).pages)
+        self.assertIn('4h00', texto)
+        self.assertNotIn('1h30', texto)
+        self.assertNotIn('2h00', texto)
+
+    def test_pdf_resumo_exige_login(self):
+        self.client.logout()
+        response = self.client.get(reverse('horas:resumo_exportar_pdf'))
+        self.assertEqual(response.status_code, 302)
+
     def test_resumo_usuario_comum_nao_exibe_filtro_usuario(self):
         response = self.client.get(reverse('horas:resumo'))
 

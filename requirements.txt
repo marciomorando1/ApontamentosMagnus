@@ -16,8 +16,10 @@ packaging==25.0
 pillow==11.3.0
 platformdirs==4.3.8
 psycopg2-binary==2.9.10
+pypdf==6.17.0
 pytz==2025.2
 qrcode==8.2
+reportlab==5.0.1
 requests==2.32.3
 requests-file==2.1.0
 requests-toolbelt==1.0.0

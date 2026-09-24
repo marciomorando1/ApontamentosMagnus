@@ -1,0 +1,72 @@
+{% extends 'base.html' %}
+
+{% block title %}Logs Rotina | Apontamento de Horas{% endblock %}
+
+{% block content %}
+  <div class="page-title">Logs Rotina</div>
+
+  <form method="get" class="filter-row">
+    <div class="field">
+      <label for="fil-de">De</label>
+      <input type="date" id="fil-de" name="de" value="{{ filtros.de }}">
+    </div>
+    <div class="field">
+      <label for="fil-ate">Até</label>
+      <input type="date" id="fil-ate" name="ate" value="{{ filtros.ate }}">
+    </div>
+    <div class="field">
+      <label for="fil-usuario">Usuário da requisição</label>
+      <select id="fil-usuario" name="usuario">
+        <option value="">Todos</option>
+        {% for usuario in usuarios_filtro %}
+          <option value="{{ usuario.pk }}" {% if filtros.usuario == usuario.pk|stringformat:'s' %}selected{% endif %}>
+            {{ usuario.get_full_name|default:usuario.username }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <button class="btn btn-primary btn-sm" type="submit">Filtrar</button>
+    <a class="btn btn-ghost btn-sm" href="{% url 'horas:logs_rotina' %}">Limpar</a>
+  </form>
+
+  <div class="table-wrap logs-rotina-wrap">
+    <table class="logs-rotina-table">
+      <thead>
+        <tr>
+          <th>Data</th>
+          <th>Hora</th>
+          <th>Usuário</th>
+          <th>Operação</th>
+          <th>Requisição enviada</th>
+          <th>Retorno recebido</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for log in logs %}
+          <tr>
+            <td class="mono">{{ log.criado_em|date:'d/m/Y' }}</td>
+            <td class="mono">{{ log.criado_em|time:'H:i:s' }}</td>
+            <td>{{ log.usuario_requisicao.get_full_name|default:log.usuario_requisicao.username|default:'Sistema' }}</td>
+            <td><span class="badge-code">{{ log.operacao }}</span></td>
+            <td><details><summary>Visualizar</summary><pre>{{ log.requisicao_enviada }}</pre></details></td>
+            <td><details><summary>Visualizar</summary><pre>{{ log.retorno_recebido }}</pre></details></td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6" class="empty-cell">Nenhum log encontrado.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if logs.paginator.num_pages > 1 %}
+    <nav class="logs-pagination" aria-label="Paginação dos logs">
+      {% if logs.has_previous %}
+        <a class="btn btn-ghost btn-sm" href="?de={{ filtros.de }}&ate={{ filtros.ate }}&usuario={{ filtros.usuario }}&pagina={{ logs.previous_page_number }}">Anterior</a>
+      {% endif %}
+      <span>Página {{ logs.number }} de {{ logs.paginator.num_pages }}</span>
+      {% if logs.has_next %}
+        <a class="btn btn-ghost btn-sm" href="?de={{ filtros.de }}&ate={{ filtros.ate }}&usuario={{ filtros.usuario }}&pagina={{ logs.next_page_number }}">Próxima</a>
+      {% endif %}
+    </nav>
+  {% endif %}
+{% endblock %}

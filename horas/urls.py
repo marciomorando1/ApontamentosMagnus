@@ -25,6 +25,7 @@ urlpatterns = [
     path('estimativas/<int:pk>/remover/', views.EstimativaDeleteView.as_view(), name='estimativa_remover'),
     path('estimativas/<int:pk>/exportar/', views.exportar_estimativa_xlsx, name='estimativa_exportar'),
     path('configuracoes/', views.ConfiguracoesView.as_view(), name='configuracoes'),
+    path('logs-rotina/', views.LogsRotinaView.as_view(), name='logs_rotina'),
     path('resumo/', views.ResumoView.as_view(), name='resumo'),
     path('resumo/exportar/pdf/', views.exportar_resumo_pdf, name='resumo_exportar_pdf'),
     path('solicitacoes-horas/', views.SolicitacoesHorasView.as_view(), name='solicitacoes_horas'),

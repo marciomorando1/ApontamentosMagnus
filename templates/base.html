@@ -123,6 +123,9 @@
         </a>
         {% endif %}
         {% if is_admin and not is_terceiro %}
+          <a class="nav-item {% if section == 'logs_rotina' %}active{% endif %}" href="{% url 'horas:logs_rotina' %}">
+            <span class="nav-icon">L</span> Logs Rotina
+          </a>
           <a class="nav-item {% if section == 'configuracoes' %}active{% endif %}" href="{% url 'horas:configuracoes' %}">
             <span class="nav-icon">⚙</span> Configurações
           </a>

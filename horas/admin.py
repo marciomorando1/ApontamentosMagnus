@@ -5,7 +5,7 @@ from django.contrib import admin
 from django import forms
 from django.utils import timezone
 
-from .models import AgendaAtividade, Cliente, Fase, FolgaFeriado, Orcamento, Registro, Servico, SolicitacaoHoras, UserProfile
+from .models import AgendaAtividade, Cliente, Fase, FolgaFeriado, LogRotina, Orcamento, Registro, Servico, SolicitacaoHoras, UserProfile
 
 
 User = get_user_model()
@@ -56,6 +56,17 @@ except admin.sites.NotRegistered:
     pass
 
 admin.site.register(User, UserAdmin)
+
+
+@admin.register(LogRotina)
+class LogRotinaAdmin(admin.ModelAdmin):
+    list_display = ('criado_em', 'usuario_requisicao', 'operacao')
+    list_filter = ('operacao', 'criado_em', 'usuario_requisicao')
+    search_fields = ('usuario_requisicao__username', 'operacao', 'requisicao_enviada', 'retorno_recebido')
+    readonly_fields = ('criado_em', 'usuario_requisicao', 'operacao', 'requisicao_enviada', 'retorno_recebido')
+
+    def has_add_permission(self, request):
+        return False
 
 
 @admin.register(Fase)

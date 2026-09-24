@@ -1,5 +1,6 @@
 import csv
 import calendar
+import json
 import logging
 import re
 import unicodedata
@@ -29,6 +30,7 @@ from django.contrib.auth.views import LoginView
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import ProtectedError, Q
+from django.core.paginator import Paginator
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
@@ -67,6 +69,7 @@ from .models import (
     Estimativa,
     Fase,
     FolgaFeriado,
+    LogRotina,
     Orcamento,
     OrcamentoServico,
     Registro,
@@ -203,6 +206,8 @@ def _base_registros_queryset(user, *, include_all_users=False):
 
 
 def _user_is_admin(user):
+    if user.is_superuser:
+        return True
     profile, _ = UserProfile.objects.get_or_create(user=user)
     return profile.is_administrador
 
@@ -922,6 +927,54 @@ def _log_erp_payload(porta, payload):
     logger.warning('Campos enviados ao ERP na porta %s:\n%s', porta, pformat(safe_payload, width=120))
 
 
+def _erp_log_text(value):
+    try:
+        value = serialize_object(value)
+    except (TypeError, ValueError):
+        pass
+    return json.dumps(value, ensure_ascii=False, indent=2, default=str)
+
+
+def _safe_erp_payload(value):
+    if isinstance(value, dict):
+        return {
+            key: '***' if str(key).lower() == 'password' else _safe_erp_payload(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_safe_erp_payload(item) for item in value]
+    return value
+
+
+def _registrar_chamada_erp(operacao, usuario, payload, chamada):
+    requisicao = _erp_log_text(_safe_erp_payload(payload))
+    try:
+        response = chamada()
+    except Exception as exc:
+        retorno = _erp_log_text({'erro': type(exc).__name__, 'mensagem': str(exc)})
+        try:
+            LogRotina.objects.create(
+                usuario_requisicao=usuario,
+                operacao=operacao,
+                requisicao_enviada=requisicao,
+                retorno_recebido=retorno,
+            )
+        except Exception:
+            logger.exception('Nao foi possivel gravar o log da chamada ERP %s.', operacao)
+        raise
+
+    try:
+        LogRotina.objects.create(
+            usuario_requisicao=usuario,
+            operacao=operacao,
+            requisicao_enviada=requisicao,
+            retorno_recebido=_erp_log_text(response),
+        )
+    except Exception:
+        logger.exception('Nao foi possivel gravar o log da chamada ERP %s.', operacao)
+    return response
+
+
 def _iter_erp_cliente_records(value):
     if isinstance(value, dict):
         if _get_erp_field(value, 'codcli', 'codCli') is not None and _get_erp_field(value, 'nomCli', 'nomcli') is not None:
@@ -1060,46 +1113,58 @@ class SeniorErpTransport(Transport):
         return super().post(self._rewrite_url(address), message, headers)
 
 
-def _buscar_clientes_erp():
+def _executar_operacao_erp(configuracao, operation_timeout, operacao, payload):
+    session = requests.Session()
+    transport = SeniorErpTransport(
+        session=session,
+        timeout=ERP_CLIENTES_TIMEOUT,
+        operation_timeout=operation_timeout,
+        public_base_url=_erp_public_base_url(configuracao),
+    )
+    client = ZeepClient(_erp_wsdl_url(configuracao), transport=transport)
+    return getattr(client.service, operacao)(**payload)
+
+
+def _buscar_clientes_erp(usuario=None):
     configuracao = ConfiguracaoSistema.objects.first()
     if not configuracao or not configuracao.usuario_erp or not configuracao.senha_erp:
         return {}, ['Configure URL, usuario e senha do ERP antes de importar clientes.']
 
-    session = requests.Session()
-    transport = SeniorErpTransport(
-        session=session,
-        timeout=ERP_CLIENTES_TIMEOUT,
-        operation_timeout=ERP_CLIENTES_TIMEOUT,
-        public_base_url=_erp_public_base_url(configuracao),
-    )
-    client = ZeepClient(_erp_wsdl_url(configuracao), transport=transport)
-    response = client.service.buscarClientes(
+    payload = dict(
         user=configuracao.usuario_erp,
         password=configuracao.senha_erp,
         encryption=configuracao.encryption_erp,
         parameters={},
+    )
+    response = _registrar_chamada_erp(
+        'buscarClientes',
+        usuario,
+        payload,
+        lambda: _executar_operacao_erp(
+            configuracao, ERP_CLIENTES_TIMEOUT, 'buscarClientes', payload
+        ),
     )
     return _extract_clientes_erp_data(response)
 
 
-def _buscar_orcamentos_erp():
+def _buscar_orcamentos_erp(usuario=None):
     configuracao = ConfiguracaoSistema.objects.first()
     if not configuracao or not configuracao.usuario_erp or not configuracao.senha_erp:
         return [], ['Configure URL, usuario e senha do ERP antes de importar orcamentos.']
 
-    session = requests.Session()
-    transport = SeniorErpTransport(
-        session=session,
-        timeout=ERP_CLIENTES_TIMEOUT,
-        operation_timeout=ERP_ORCAMENTOS_TIMEOUT,
-        public_base_url=_erp_public_base_url(configuracao),
-    )
-    client = ZeepClient(_erp_wsdl_url(configuracao), transport=transport)
-    response = client.service.buscarOrcamentos_2(
+    payload = dict(
         user=configuracao.usuario_erp,
         password=configuracao.senha_erp,
         encryption=configuracao.encryption_erp,
         parameters={},
+    )
+    response = _registrar_chamada_erp(
+        'buscarOrcamentos_2',
+        usuario,
+        payload,
+        lambda: _executar_operacao_erp(
+            configuracao, ERP_ORCAMENTOS_TIMEOUT, 'buscarOrcamentos_2', payload
+        ),
     )
     return _extract_orcamentos_erp_data(response)
 
@@ -1265,14 +1330,6 @@ def _gerar_pedido_erp(orcamento, user):
     if not profile.codigoerp:
         return None, ['Configure o codigo ERP do usuario antes de enviar ao ERP.']
 
-    session = requests.Session()
-    transport = SeniorErpTransport(
-        session=session,
-        timeout=ERP_CLIENTES_TIMEOUT,
-        operation_timeout=ERP_CLIENTES_TIMEOUT,
-        public_base_url=_erp_public_base_url(configuracao),
-    )
-    client = ZeepClient(_erp_wsdl_url(configuracao), transport=transport)
     payload = {
         'user': configuracao.usuario_erp,
         'password': configuracao.senha_erp,
@@ -1283,23 +1340,20 @@ def _gerar_pedido_erp(orcamento, user):
         },
     }
     _log_erp_payload('novo', payload)
-    response = client.service.novo(**payload)
+    response = _registrar_chamada_erp(
+        'novo',
+        user,
+        payload,
+        lambda: _executar_operacao_erp(configuracao, ERP_CLIENTES_TIMEOUT, 'novo', payload),
+    )
     return _extract_pedido_erp_data(response)
 
 
-def _adicionar_servicos_pedido_erp(pedido, servicos):
+def _adicionar_servicos_pedido_erp(pedido, servicos, user=None):
     configuracao = ConfiguracaoSistema.objects.first()
     if not configuracao or not configuracao.usuario_erp or not configuracao.senha_erp:
         return '', ['Configure URL, usuario e senha do ERP antes de enviar serviços ao ERP.']
 
-    session = requests.Session()
-    transport = SeniorErpTransport(
-        session=session,
-        timeout=ERP_CLIENTES_TIMEOUT,
-        operation_timeout=ERP_CLIENTES_TIMEOUT,
-        public_base_url=_erp_public_base_url(configuracao),
-    )
-    client = ZeepClient(_erp_wsdl_url(configuracao), transport=transport)
     payload = {
         'user': configuracao.usuario_erp,
         'password': configuracao.senha_erp,
@@ -1312,7 +1366,14 @@ def _adicionar_servicos_pedido_erp(pedido, servicos):
         },
     }
     _log_erp_payload('adicionaServicoApp', payload)
-    response = client.service.adicionaServicoApp(**payload)
+    response = _registrar_chamada_erp(
+        'adicionaServicoApp',
+        user,
+        payload,
+        lambda: _executar_operacao_erp(
+            configuracao, ERP_CLIENTES_TIMEOUT, 'adicionaServicoApp', payload
+        ),
+    )
     return _extract_adiciona_servico_erp_data(response)
 
 
@@ -1327,7 +1388,7 @@ def _enviar_registros_erp(orcamento, user, registros):
 
     servico_msg = ''
     if pedido['num_ped']:
-        servico_msg, servico_errors = _adicionar_servicos_pedido_erp(pedido, servicos)
+        servico_msg, servico_errors = _adicionar_servicos_pedido_erp(pedido, servicos, user)
         if servico_errors:
             return None, servico_errors
         if servico_msg.upper().startswith('ERRO'):
@@ -1445,46 +1506,46 @@ def _salvar_clientes_data(clientes_data, user):
     return created_count, updated_count
 
 
-def _buscar_servicos_erp():
+def _buscar_servicos_erp(usuario=None):
     configuracao = ConfiguracaoSistema.objects.first()
     if not configuracao or not configuracao.usuario_erp or not configuracao.senha_erp:
         return {}, ['Configure URL, usuario e senha do ERP antes de importar servicos.']
 
-    session = requests.Session()
-    transport = SeniorErpTransport(
-        session=session,
-        timeout=ERP_CLIENTES_TIMEOUT,
-        operation_timeout=ERP_CLIENTES_TIMEOUT,
-        public_base_url=_erp_public_base_url(configuracao),
-    )
-    client = ZeepClient(_erp_wsdl_url(configuracao), transport=transport)
-    response = client.service.buscarServicos(
+    payload = dict(
         user=configuracao.usuario_erp,
         password=configuracao.senha_erp,
         encryption=configuracao.encryption_erp,
         parameters={},
+    )
+    response = _registrar_chamada_erp(
+        'buscarServicos',
+        usuario,
+        payload,
+        lambda: _executar_operacao_erp(
+            configuracao, ERP_CLIENTES_TIMEOUT, 'buscarServicos', payload
+        ),
     )
     return _extract_servicos_erp_data(response)
 
 
-def _buscar_servicos_orcamentos_erp():
+def _buscar_servicos_orcamentos_erp(usuario=None):
     configuracao = ConfiguracaoSistema.objects.first()
     if not configuracao or not configuracao.usuario_erp or not configuracao.senha_erp:
         return [], ['Configure URL, usuario e senha do ERP antes de importar ligacoes de servicos.']
 
-    session = requests.Session()
-    transport = SeniorErpTransport(
-        session=session,
-        timeout=ERP_CLIENTES_TIMEOUT,
-        operation_timeout=ERP_CLIENTES_TIMEOUT,
-        public_base_url=_erp_public_base_url(configuracao),
-    )
-    client = ZeepClient(_erp_wsdl_url(configuracao), transport=transport)
-    response = client.service.ligacaoServicoOrcamento(
+    payload = dict(
         user=configuracao.usuario_erp,
         password=configuracao.senha_erp,
         encryption=configuracao.encryption_erp,
         parameters={},
+    )
+    response = _registrar_chamada_erp(
+        'ligacaoServicoOrcamento',
+        usuario,
+        payload,
+        lambda: _executar_operacao_erp(
+            configuracao, ERP_CLIENTES_TIMEOUT, 'ligacaoServicoOrcamento', payload
+        ),
     )
     return _extract_servicos_orcamentos_erp_data(response)
 
@@ -1779,6 +1840,39 @@ class AdministradorRequiredMixin:
         if request.user.is_authenticated and not _user_is_admin(request.user):
             raise PermissionDenied
         return super().dispatch(request, *args, **kwargs)
+
+
+class LogsRotinaView(AdministradorRequiredMixin, AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
+    template_name = 'horas/logs_rotina.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        data_inicial = _parse_date(self.request.GET.get('de'))
+        data_final = _parse_date(self.request.GET.get('ate'))
+        usuario_id = self.request.GET.get('usuario', '').strip()
+
+        logs = LogRotina.objects.select_related('usuario_requisicao')
+        if data_inicial:
+            logs = logs.filter(criado_em__date__gte=data_inicial)
+        if data_final:
+            logs = logs.filter(criado_em__date__lte=data_final)
+        if usuario_id.isdigit():
+            logs = logs.filter(usuario_requisicao_id=usuario_id)
+
+        paginator = Paginator(logs, 50)
+        context.update(
+            {
+                'section': 'logs_rotina',
+                'logs': paginator.get_page(self.request.GET.get('pagina')),
+                'usuarios_filtro': User.objects.all().order_by('first_name', 'last_name', 'username'),
+                'filtros': {
+                    'de': self.request.GET.get('de', ''),
+                    'ate': self.request.GET.get('ate', ''),
+                    'usuario': usuario_id,
+                },
+            }
+        )
+        return context
 
 
 class DashboardView(AuthenticatedViewMixin, RedirectView):
@@ -2664,7 +2758,7 @@ class ClientesView(
     def post(self, request, *args, **kwargs):
         if request.POST.get('action') == 'importar_erp':
             try:
-                clientes_data, import_errors = _buscar_clientes_erp()
+                clientes_data, import_errors = _buscar_clientes_erp(request.user)
             except Exception as exc:
                 logger.exception('Erro ao consultar clientes no ERP: %s', exc)
                 messages.error(
@@ -2789,7 +2883,7 @@ class OrcamentosView(
     def post(self, request, *args, **kwargs):
         if request.POST.get('action') == 'importar_erp':
             try:
-                orcamentos_data, import_errors = _buscar_orcamentos_erp()
+                orcamentos_data, import_errors = _buscar_orcamentos_erp(request.user)
             except Exception as exc:
                 logger.exception('Erro ao consultar orcamentos no ERP: %s', exc)
                 messages.error(
@@ -2930,7 +3024,7 @@ class ServicosView(GerenteProjetosRequiredMixin, AuthenticatedViewMixin, Sidebar
     def post(self, request, *args, **kwargs):
         if request.POST.get('action') == 'importar_erp':
             try:
-                servicos_data, import_errors = _buscar_servicos_erp()
+                servicos_data, import_errors = _buscar_servicos_erp(request.user)
             except Exception as exc:
                 logger.exception('Erro ao consultar servicos no ERP: %s', exc)
                 messages.error(
@@ -2995,7 +3089,7 @@ class ServicoOrcamentoView(GerenteProjetosRequiredMixin, AuthenticatedViewMixin,
     def post(self, request, *args, **kwargs):
         orcamento_id = request.POST.get('orcamento', '').strip()
         try:
-            ligacoes_data, import_errors = _buscar_servicos_orcamentos_erp()
+            ligacoes_data, import_errors = _buscar_servicos_orcamentos_erp(request.user)
         except Exception as exc:
             logger.exception('Erro ao consultar ligacoes de servico x orcamento no ERP: %s', exc)
             messages.error(

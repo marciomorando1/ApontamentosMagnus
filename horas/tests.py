@@ -19,6 +19,7 @@ from .models import (
     Estimativa,
     Fase,
     FolgaFeriado,
+    LogRotina,
     Orcamento,
     OrcamentoServico,
     Registro,
@@ -29,6 +30,106 @@ from .models import (
 
 
 User = get_user_model()
+
+
+class LogsRotinaTests(TestCase):
+    def setUp(self):
+        self.usuario = User.objects.create_user(username='usuario-log', password='senha')
+        self.administrador = User.objects.create_user(username='admin-log', password='senha')
+        self.administrador.profile.is_administrador = True
+        self.administrador.profile.save(update_fields=['is_administrador'])
+
+    def test_apenas_administrador_ou_superusuario_acessa_logs(self):
+        url = reverse('horas:logs_rotina')
+
+        self.client.force_login(self.usuario)
+        self.assertEqual(self.client.get(url).status_code, 403)
+
+        self.client.force_login(self.administrador)
+        response_admin = self.client.get(url)
+        self.assertEqual(response_admin.status_code, 200)
+        self.assertContains(response_admin, 'Logs Rotina')
+        self.assertContains(response_admin, 'usuario-log')
+
+        root = User.objects.create_superuser(username='root-log', password='senha')
+        self.client.force_login(root)
+        response_root = self.client.get(url)
+        self.assertEqual(response_root.status_code, 200)
+        self.assertContains(response_root, 'Logs Rotina')
+
+    def test_filtra_logs_por_usuario(self):
+        outro_usuario = User.objects.create_user(username='outro-log', password='senha')
+        LogRotina.objects.create(
+            usuario_requisicao=self.usuario,
+            operacao='buscarClientes',
+            requisicao_enviada='requisicao usuario',
+            retorno_recebido='retorno usuario',
+        )
+        LogRotina.objects.create(
+            usuario_requisicao=outro_usuario,
+            operacao='buscarServicos',
+            requisicao_enviada='requisicao outro',
+            retorno_recebido='retorno outro',
+        )
+
+        self.client.force_login(self.administrador)
+        response = self.client.get(reverse('horas:logs_rotina'), {'usuario': self.usuario.pk})
+
+        self.assertContains(response, 'requisicao usuario')
+        self.assertNotContains(response, 'requisicao outro')
+
+    def test_registra_sucesso_sem_persistir_senha(self):
+        from horas.views import _registrar_chamada_erp
+
+        resposta = _registrar_chamada_erp(
+            'operacaoTeste',
+            self.usuario,
+            {'user': 'erp', 'password': 'segredo', 'parameters': {'codigo': 10}},
+            lambda: {'resultado': 'ok'},
+        )
+
+        self.assertEqual(resposta, {'resultado': 'ok'})
+        log = LogRotina.objects.get()
+        self.assertEqual(log.usuario_requisicao, self.usuario)
+        self.assertIn('***', log.requisicao_enviada)
+        self.assertNotIn('segredo', log.requisicao_enviada)
+        self.assertIn('resultado', log.retorno_recebido)
+
+    def test_registra_excecao_e_preserva_erro_original(self):
+        from horas.views import _registrar_chamada_erp
+
+        def chamada_com_erro():
+            raise TimeoutError('tempo esgotado')
+
+        with self.assertRaisesRegex(TimeoutError, 'tempo esgotado'):
+            _registrar_chamada_erp('operacaoTeste', self.usuario, {'parameters': {}}, chamada_com_erro)
+
+        log = LogRotina.objects.get()
+        self.assertIn('TimeoutError', log.retorno_recebido)
+        self.assertIn('tempo esgotado', log.retorno_recebido)
+
+    @patch('horas.views.ZeepClient', side_effect=TimeoutError('falha ao carregar WSDL'))
+    def test_registra_erro_ocorrido_ao_carregar_wsdl(self, _zeep_client):
+        from horas.views import _buscar_orcamentos_erp
+
+        ConfiguracaoSistema.objects.update_or_create(
+            pk=1,
+            defaults={
+                'url_erp': 'https://erp.example.com',
+                'usuario_erp': 'usuario-erp',
+                'senha_erp': 'segredo',
+                'encryption_erp': 0,
+            },
+        )
+
+        with self.assertRaisesRegex(TimeoutError, 'falha ao carregar WSDL'):
+            _buscar_orcamentos_erp(self.usuario)
+
+        log = LogRotina.objects.get()
+        self.assertEqual(log.usuario_requisicao, self.usuario)
+        self.assertEqual(log.operacao, 'buscarOrcamentos_2')
+        self.assertIn('falha ao carregar WSDL', log.retorno_recebido)
+        self.assertNotIn('segredo', log.requisicao_enviada)
 
 
 def build_test_xlsx(rows):

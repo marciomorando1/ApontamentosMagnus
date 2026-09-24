@@ -379,6 +379,28 @@ nav { padding: 12px 0; flex: 1; }
 .filter-row .field { flex: 1; min-width: 150px; }
 .table-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid var(--border); }
 table { width: 100%; border-collapse: collapse; }
+.logs-rotina-table { min-width: 980px; table-layout: fixed; }
+.logs-rotina-table th:nth-child(1) { width: 88px; }
+.logs-rotina-table th:nth-child(2) { width: 76px; }
+.logs-rotina-table th:nth-child(3) { width: 150px; }
+.logs-rotina-table th:nth-child(4) { width: 170px; }
+.logs-rotina-table details { min-width: 210px; }
+.logs-rotina-table summary { color: var(--accent); cursor: pointer; font-size: 12px; }
+.logs-rotina-table pre {
+  max-width: 520px;
+  max-height: 340px;
+  margin: 10px 0 0;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface2);
+  color: var(--text);
+  font: 11px/1.45 var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.logs-pagination { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 18px; color: var(--muted); font-size: 12px; }
 .orcamentos-table-wrap { overflow-x: hidden; }
 .orcamentos-table {
   table-layout: fixed;

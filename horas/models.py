@@ -88,6 +88,29 @@ class ConfiguracaoSistema(models.Model):
         return 'Configuracoes'
 
 
+class LogRotina(models.Model):
+    usuario_requisicao = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name='logs_rotina',
+        null=True,
+        blank=True,
+    )
+    operacao = models.CharField(max_length=100)
+    requisicao_enviada = models.TextField()
+    retorno_recebido = models.TextField()
+    criado_em = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-criado_em', '-pk']
+        verbose_name = 'Log de Rotina'
+        verbose_name_plural = 'Logs de Rotina'
+
+    def __str__(self):
+        usuario = self.usuario_requisicao or 'Sistema'
+        return f'{self.criado_em:%d/%m/%Y %H:%M:%S} - {usuario} - {self.operacao}'
+
+
 class Orcamento(models.Model):
     responsavel = models.ForeignKey(
         settings.AUTH_USER_MODEL,

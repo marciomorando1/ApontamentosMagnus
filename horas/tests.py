@@ -4005,6 +4005,107 @@ class AgendaViewTests(TestCase):
             total_horas_maximo=Decimal('16'),
         )
 
+    def test_menu_minhas_reservas_aparece_somente_para_gerente_de_projetos(self):
+        self.client.force_login(self.gp)
+        response_gp = self.client.get(reverse('horas:agenda'))
+
+        self.client.force_login(self.user)
+        response_usuario = self.client.get(reverse('horas:agenda'))
+
+        self.assertContains(response_gp, reverse('horas:minhas_reservas'))
+        self.assertContains(response_gp, 'Minhas Reservas')
+        self.assertNotContains(response_usuario, reverse('horas:minhas_reservas'))
+
+    def test_minhas_reservas_exige_permissao_de_gerente_de_projetos(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('horas:minhas_reservas'))
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_minhas_reservas_lista_todas_as_atividades_criadas_pelo_gp(self):
+        criada_para_usuario = self.criar_atividade(
+            user=self.user,
+            criado_por=self.gp,
+            titulo='Reserva do usuario',
+        )
+        criada_para_outro = self.criar_atividade(
+            user=self.other_user,
+            criado_por=self.gp,
+            titulo='Reserva do outro usuario',
+        )
+        self.criar_atividade(
+            user=self.user,
+            criado_por=self.user,
+            titulo='Criada por outro usuario',
+        )
+        self.client.force_login(self.gp)
+
+        response = self.client.get(
+            reverse('horas:minhas_reservas'),
+            {'de': '2026-06-01', 'ate': '2026-06-30'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            {reserva.pk for reserva in response.context['reservas']},
+            {criada_para_usuario.pk, criada_para_outro.pk},
+        )
+        self.assertContains(response, 'Reserva do usuario')
+        self.assertContains(response, 'Reserva do outro usuario')
+        self.assertNotContains(response, 'Criada por outro usuario')
+
+    def test_minhas_reservas_aplica_filtros_e_abre_modal_pelo_titulo(self):
+        outra_orcamento = Orcamento.objects.create(
+            codigo='9003',
+            codigo_cliente='54321',
+            nome_cliente='Outro cliente',
+            numero_chamado='11111',
+            nome='Outro Orcamento',
+        )
+        atividade_filtrada = self.criar_atividade(
+            user=self.user,
+            criado_por=self.gp,
+            titulo='Reserva filtrada',
+        )
+        AgendaAtividade.objects.create(
+            user=self.other_user,
+            criado_por=self.gp,
+            cliente='Outro cliente',
+            numero_chamado='11111',
+            orcamento=outra_orcamento,
+            servico=self.servico,
+            produto='ERP',
+            titulo='Reserva fora do filtro',
+            descricao='Outra atividade',
+            data_inicio=date(2026, 6, 10),
+            data_fim=date(2026, 6, 10),
+            quantidade_horas=Decimal('2'),
+        )
+        self.client.force_login(self.gp)
+
+        response = self.client.get(
+            reverse('horas:minhas_reservas'),
+            {
+                'de': '2026-06-11',
+                'ate': '2026-06-11',
+                'usuario': self.user.pk,
+                'cliente': self.orcamento.codigo_cliente,
+                'orcamento': self.orcamento.pk,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(list(response.context['reservas']), [atividade_filtrada])
+        self.assertContains(response, 'data-agenda-event', html=False)
+        self.assertContains(response, 'data-title="Reserva filtrada"', html=False)
+        self.assertContains(response, reverse('horas:agenda_editar', args=[atividade_filtrada.pk]))
+        self.assertContains(response, 'data-agenda-modal', html=False)
+        self.assertContains(response, "event.target.closest('[data-agenda-event]')", html=False)
+        self.assertContains(response, '.agenda-modal-backdrop { position: fixed;', html=False)
+        self.assertContains(response, '.agenda-modal-backdrop.is-open { display: flex; }', html=False)
+        self.assertNotContains(response, 'Reserva fora do filtro')
+
     def test_menu_folgas_feriados_aparece_para_usuario_logado(self):
         self.client.force_login(self.user)
 

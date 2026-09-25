@@ -1,0 +1,102 @@
+<div class="agenda-modal-backdrop" data-agenda-modal hidden>
+  <div class="agenda-modal" role="dialog" aria-modal="true" aria-labelledby="agenda-modal-title">
+    <div class="agenda-modal-header">
+      <div>
+        <h2 class="agenda-modal-title" id="agenda-modal-title" data-modal-field="title"></h2>
+        <div class="agenda-modal-subtitle" data-modal-field="client"></div>
+      </div>
+      <button class="btn btn-ghost agenda-modal-close" type="button" data-modal-close aria-label="Fechar">&times;</button>
+    </div>
+    <div class="agenda-modal-body">
+      <div class="agenda-modal-grid">
+        <div class="field"><label>Usu&aacute;rio</label><div class="agenda-modal-value" data-modal-field="user"></div></div>
+        <div class="field"><label>N&uacute;mero do Or&ccedil;amento</label><div class="agenda-modal-value" data-modal-field="budget"></div></div>
+        <div class="field"><label>PMO</label><div class="agenda-modal-value" data-modal-field="pmo"></div></div>
+        <div class="field"><label>N&uacute;mero do Chamado</label><div class="agenda-modal-value" data-modal-field="ticket"></div></div>
+        <div class="field"><label>Cliente</label><div class="agenda-modal-value" data-modal-field="clientDetail"></div></div>
+        <div class="field"><label>Servi&ccedil;o</label><div class="agenda-modal-value" data-modal-field="service"></div></div>
+        <div class="field"><label>Produto</label><div class="agenda-modal-value" data-modal-field="product"></div></div>
+        <div class="field"><label>Data Inicio</label><div class="agenda-modal-value" data-modal-field="startDate"></div></div>
+        <div class="field"><label>Hor&aacute;rio</label><div class="agenda-modal-value" data-modal-field="time"></div></div>
+        <div class="field"><label>Data Fim</label><div class="agenda-modal-value" data-modal-field="endDate"></div></div>
+        <div class="field"><label>Total de Horas M&aacute;ximo</label><div class="agenda-modal-value" data-modal-field="maxHours"></div></div>
+        <div class="field is-wide"><label>Descri&ccedil;&atilde;o</label><div class="agenda-modal-value" data-modal-field="description"></div></div>
+      </div>
+      <div class="agenda-modal-actions">
+        <a class="btn btn-ghost" href="#" data-modal-edit>Editar</a>
+        <a class="btn btn-primary" href="#" data-modal-point>Apontar</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function () {
+    var modal = document.querySelector('[data-agenda-modal]');
+    var modalClose = modal ? modal.querySelector('[data-modal-close]') : null;
+    var modalEdit = modal ? modal.querySelector('[data-modal-edit]') : null;
+    var modalPoint = modal ? modal.querySelector('[data-modal-point]') : null;
+    var modalFields = {};
+
+    if (modal) {
+      modal.querySelectorAll('[data-modal-field]').forEach(function (field) {
+        modalFields[field.getAttribute('data-modal-field')] = field;
+      });
+    }
+
+    function setModalText(name, value) {
+      if (!modalFields[name]) return;
+      var text = value || '-';
+      modalFields[name].textContent = text;
+      modalFields[name].classList.toggle('is-muted', text === '-');
+    }
+
+    function openActivityModal(trigger) {
+      if (!modal) return;
+      setModalText('title', trigger.dataset.title);
+      setModalText('client', trigger.dataset.client);
+      setModalText('clientDetail', trigger.dataset.client);
+      setModalText('time', trigger.dataset.time);
+      setModalText('user', trigger.dataset.user);
+      setModalText('budget', trigger.dataset.budget);
+      setModalText('pmo', trigger.dataset.pmo);
+      setModalText('ticket', trigger.dataset.ticket);
+      setModalText('service', trigger.dataset.service);
+      setModalText('product', trigger.dataset.product);
+      setModalText('startDate', trigger.dataset.startDate);
+      setModalText('endDate', trigger.dataset.endDate);
+      setModalText('maxHours', trigger.dataset.maxHours);
+      setModalText('description', trigger.dataset.description);
+
+      if (modalEdit) {
+        modalEdit.hidden = trigger.dataset.canManage !== 'true' || !trigger.dataset.editUrl;
+        if (!modalEdit.hidden) modalEdit.href = trigger.dataset.editUrl;
+      }
+      if (modalPoint) modalPoint.href = trigger.dataset.pointUrl || '#';
+      modal.hidden = false;
+      modal.classList.add('is-open');
+      if (modalClose) modalClose.focus();
+    }
+
+    function closeActivityModal() {
+      if (!modal) return;
+      modal.classList.remove('is-open');
+      modal.hidden = true;
+    }
+
+    document.addEventListener('click', function (event) {
+      var trigger = event.target.closest('[data-agenda-event]');
+      if (!trigger) return;
+      event.preventDefault();
+      event.stopPropagation();
+      openActivityModal(trigger);
+    });
+    if (modal) modal.addEventListener('click', function (event) {
+      if (event.target === modal) closeActivityModal();
+    });
+    if (modalClose) modalClose.addEventListener('click', closeActivityModal);
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape' && modal && !modal.hidden) closeActivityModal();
+    });
+  })();
+</script>

@@ -222,6 +222,11 @@ def _user_is_gp(user):
     return profile.is_gerente_projetos or profile.is_administrador
 
 
+def _user_is_project_manager(user):
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+    return profile.is_gerente_projetos
+
+
 def _user_can_export_csv(user):
     profile, _ = UserProfile.objects.get_or_create(user=user)
     return profile.exportacsv
@@ -1807,6 +1812,7 @@ class SidebarContextMixin:
         context['sidebar_total_today'] = self.get_sidebar_total_today()
         context['orcamentos_ativos'] = Orcamento.objects.filter(ativo=True).order_by('codigo')
         context['is_gp'] = _user_is_gp(self.request.user)
+        context['is_gerente_projetos'] = _user_is_project_manager(self.request.user)
         context['is_admin'] = _user_is_admin(self.request.user)
         context['is_terceiro'] = _user_is_terceiro(self.request.user)
         context['pendencias_aprovacao_count'] = 0
@@ -1858,6 +1864,13 @@ class RequiredPasswordChangeView(AuthenticatedViewMixin, TemplateView):
 class GerenteProjetosRequiredMixin:
     def dispatch(self, request, *args, **kwargs):
         if request.user.is_authenticated and not _user_is_gp(request.user):
+            raise PermissionDenied
+        return super().dispatch(request, *args, **kwargs)
+
+
+class GerenteProjetosCadastroRequiredMixin:
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated and not _user_is_project_manager(request.user):
             raise PermissionDenied
         return super().dispatch(request, *args, **kwargs)
 
@@ -1940,6 +1953,97 @@ class AgendaView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
         context['selected_user_ids'] = {selected_user.pk for selected_user in selected_users}
         context['selected_user'] = selected_user
         context['show_agenda_empty_filter'] = context['is_gp'] and not selected_users
+        return context
+
+
+class MinhasReservasView(
+    GerenteProjetosCadastroRequiredMixin,
+    AuthenticatedViewMixin,
+    SidebarContextMixin,
+    TemplateView,
+):
+    template_name = 'horas/minhas_reservas.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        hoje = date.today()
+        data_inicial = _parse_date(self.request.GET.get('de'))
+        data_final = _parse_date(self.request.GET.get('ate'))
+        if not data_inicial and not data_final:
+            data_inicial, data_final = _month_bounds(hoje.replace(day=1))
+        if data_inicial and data_final and data_inicial > data_final:
+            messages.error(self.request, 'A data inicial deve ser menor ou igual a data final.')
+            data_inicial, data_final = data_final, data_inicial
+
+        usuario_id = self.request.GET.get('usuario', '').strip()
+        codigo_cliente = self.request.GET.get('cliente', '').strip()
+        orcamento_id = self.request.GET.get('orcamento', '').strip()
+        if usuario_id and not usuario_id.isdigit():
+            raise Http404
+        if orcamento_id and not orcamento_id.isdigit():
+            raise Http404
+
+        reservas_base = _base_agenda_queryset().filter(criado_por=self.request.user)
+        reservas = reservas_base
+        if data_inicial:
+            reservas = reservas.filter(data_fim__gte=data_inicial)
+        if data_final:
+            reservas = reservas.filter(data_inicio__lte=data_final)
+        if usuario_id:
+            reservas = reservas.filter(user_id=usuario_id)
+        if codigo_cliente:
+            reservas = reservas.filter(orcamento__codigo_cliente=codigo_cliente)
+        if orcamento_id:
+            reservas = reservas.filter(orcamento_id=orcamento_id)
+
+        reservas = reservas.order_by('data_inicio', 'user__username', 'hora_inicio', 'titulo', 'pk')
+        for reserva in reservas:
+            reserva.can_manage = _can_manage_agenda_activity(self.request.user, reserva)
+
+        usuarios = (
+            User.objects
+            .filter(agenda_atividades__criado_por=self.request.user)
+            .distinct()
+            .order_by('username')
+        )
+        codigos_clientes = (
+            reservas_base
+            .exclude(orcamento__codigo_cliente='')
+            .values_list('orcamento__codigo_cliente', flat=True)
+            .distinct()
+            .order_by('orcamento__codigo_cliente')
+        )
+        orcamentos = (
+            Orcamento.objects
+            .filter(agenda_atividades__criado_por=self.request.user)
+            .distinct()
+            .order_by('codigo')
+        )
+
+        month_start = (data_inicial or hoje).replace(day=1)
+        prev_month, next_month = _month_navigation(month_start)
+        prev_first, prev_last = _month_bounds(prev_month)
+        next_first, next_last = _month_bounds(next_month)
+
+        context.update(
+            {
+                'section': 'minhas_reservas',
+                'reservas': reservas,
+                'usuarios_filtro': usuarios,
+                'codigos_clientes': codigos_clientes,
+                'orcamentos_filtro': orcamentos,
+                'filtros': {
+                    'de': data_inicial.isoformat() if data_inicial else '',
+                    'ate': data_final.isoformat() if data_final else '',
+                    'usuario': usuario_id,
+                    'cliente': codigo_cliente,
+                    'orcamento': orcamento_id,
+                },
+                'periodo_label': f'{MONTH_LABELS[month_start.month]} de {month_start.year}',
+                'periodo_anterior': f'?de={prev_first.isoformat()}&ate={prev_last.isoformat()}',
+                'periodo_proximo': f'?de={next_first.isoformat()}&ate={next_last.isoformat()}',
+            }
+        )
         return context
 
 

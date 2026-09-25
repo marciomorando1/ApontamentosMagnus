@@ -77,6 +77,11 @@
         <a class="nav-item {% if section == 'agenda' %}active{% endif %}" href="{% url 'horas:agenda' %}">
           <span class="nav-icon">A</span> Agenda
         </a>
+        {% if is_gerente_projetos %}
+        <a class="nav-item {% if section == 'minhas_reservas' %}active{% endif %}" href="{% url 'horas:minhas_reservas' %}">
+          <span class="nav-icon">MR</span> Minhas Reservas
+        </a>
+        {% endif %}
         {% if not is_terceiro %}
         <a class="nav-item {% if section == 'folgas_feriados' %}active{% endif %}" href="{% url 'horas:folgas_feriados' %}">
           <span class="nav-icon">F</span> Folgas/Feriados

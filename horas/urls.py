@@ -7,6 +7,7 @@ app_name = 'horas'
 urlpatterns = [
     path('', views.DashboardView.as_view(), name='dashboard'),
     path('agenda/', views.AgendaView.as_view(), name='agenda'),
+    path('minhas-reservas/', views.MinhasReservasView.as_view(), name='minhas_reservas'),
     path('agenda/nova/', views.AgendaCreateView.as_view(), name='agenda_nova'),
     path('agenda/<int:pk>/editar/', views.AgendaUpdateView.as_view(), name='agenda_editar'),
     path('agenda/<int:pk>/remover/', views.AgendaDeleteView.as_view(), name='agenda_remover'),

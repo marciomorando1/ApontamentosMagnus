@@ -595,9 +595,10 @@ class FolgaFeriadoForm(forms.ModelForm):
 
     class Meta:
         model = FolgaFeriado
-        fields = ['user', 'data', 'descricao']
+        fields = ['user', 'data_inicio', 'data_fim', 'descricao']
         widgets = {
-            'data': DateInput(),
+            'data_inicio': DateInput(),
+            'data_fim': DateInput(),
             'descricao': forms.TextInput(attrs={'maxlength': 200}),
         }
 
@@ -611,7 +612,8 @@ class FolgaFeriadoForm(forms.ModelForm):
         )
         self.fields['user'].queryset = User.objects.order_by('username')
         self.fields['user'].label = 'Usuário'
-        self.fields['data'].label = 'Data'
+        self.fields['data_inicio'].label = 'Data Inicio'
+        self.fields['data_fim'].label = 'Data Final'
         self.fields['descricao'].label = 'Descrição'
 
         if self.instance.pk:
@@ -644,6 +646,10 @@ class FolgaFeriadoForm(forms.ModelForm):
             cleaned_data['user'] = None
         elif not cleaned_data.get('user'):
             self.add_error('user', 'Selecione um usuário ou marque para criar para todos.')
+        data_inicio = cleaned_data.get('data_inicio')
+        data_fim = cleaned_data.get('data_fim')
+        if data_inicio and data_fim and data_inicio > data_fim:
+            self.add_error('data_fim', 'A data final deve ser maior ou igual a data inicio.')
         return cleaned_data
 
 class AgendaAtividadeForm(forms.ModelForm):

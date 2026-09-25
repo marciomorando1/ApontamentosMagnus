@@ -3947,17 +3947,30 @@ class AgendaViewTests(TestCase):
     def test_usuario_comum_cria_folga_na_propria_agenda(self):
         self.client.force_login(self.user)
 
-        response = self.client.post(reverse('horas:folgas_feriados'), data={'data': '2026-06-15', 'descricao': 'Folga pessoal'})
+        response = self.client.post(
+            reverse('horas:folgas_feriados'),
+            data={'data_inicio': '2026-06-15', 'data_fim': '2026-06-17', 'descricao': 'Folga pessoal'},
+        )
 
         self.assertEqual(response.status_code, 302)
         folga = FolgaFeriado.objects.get(descricao='Folga pessoal')
         self.assertEqual(folga.user, self.user)
         self.assertEqual(folga.criado_por, self.user)
+        self.assertEqual(folga.data_inicio, date(2026, 6, 15))
+        self.assertEqual(folga.data_fim, date(2026, 6, 17))
 
     def test_gerente_cria_folga_para_todos_os_usuarios(self):
         self.client.force_login(self.gp)
 
-        response = self.client.post(reverse('horas:folgas_feriados'), data={'data': '2026-06-16', 'descricao': 'Feriado geral', 'aplicar_todos': 'on'})
+        response = self.client.post(
+            reverse('horas:folgas_feriados'),
+            data={
+                'data_inicio': '2026-06-16',
+                'data_fim': '2026-06-16',
+                'descricao': 'Feriado geral',
+                'aplicar_todos': 'on',
+            },
+        )
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(FolgaFeriado.objects.filter(descricao='Feriado geral').count(), 1)
@@ -3970,7 +3983,8 @@ class AgendaViewTests(TestCase):
         folga = FolgaFeriado.objects.create(
             user=None,
             criado_por=self.gp,
-            data=date(2026, 6, 16),
+            data_inicio=date(2026, 6, 16),
+            data_fim=date(2026, 6, 16),
             descricao='Feriado geral',
             abrangencia_todos=True,
         )
@@ -3983,7 +3997,7 @@ class AgendaViewTests(TestCase):
 
         response = self.client.post(
             reverse('horas:folga_feriado_editar', args=[folga.pk]),
-            data={'data': '2026-06-20', 'descricao': 'Feriado alterado'},
+            data={'data_inicio': '2026-06-20', 'data_fim': '2026-06-22', 'descricao': 'Feriado alterado'},
         )
 
         self.assertEqual(response.status_code, 302)
@@ -3991,19 +4005,20 @@ class AgendaViewTests(TestCase):
         folga.refresh_from_db()
         self.assertTrue(folga.abrangencia_todos)
         self.assertIsNone(folga.user)
-        self.assertEqual(folga.data, date(2026, 6, 20))
+        self.assertEqual(folga.data_inicio, date(2026, 6, 20))
+        self.assertEqual(folga.data_fim, date(2026, 6, 22))
         self.assertEqual(folga.descricao, 'Feriado alterado')
 
         agenda = self.client.get(
             reverse('horas:agenda'),
             {'mes': '2026-06', 'usuario': [self.user.pk, self.other_user.pk]},
         )
-        self.assertContains(agenda, 'Feriado alterado', count=2)
+        self.assertContains(agenda, 'Feriado alterado', count=6)
 
 
     def test_grid_permite_editar_e_remover_apenas_quem_criou_folga(self):
-        folga_propria = FolgaFeriado.objects.create(user=self.user, criado_por=self.user, data=date(2026, 6, 17), descricao='Criada por mim')
-        folga_gp = FolgaFeriado.objects.create(user=self.user, criado_por=self.gp, data=date(2026, 6, 18), descricao='Criada pelo GP')
+        folga_propria = FolgaFeriado.objects.create(user=self.user, criado_por=self.user, data_inicio=date(2026, 6, 17), data_fim=date(2026, 6, 17), descricao='Criada por mim')
+        folga_gp = FolgaFeriado.objects.create(user=self.user, criado_por=self.gp, data_inicio=date(2026, 6, 18), data_fim=date(2026, 6, 18), descricao='Criada pelo GP')
         self.client.force_login(self.user)
 
         response = self.client.get(reverse('horas:folgas_feriados'))
@@ -4016,7 +4031,7 @@ class AgendaViewTests(TestCase):
         self.assertEqual(response.status_code, 404)
 
     def test_remove_folga_feriado_criada_pelo_usuario(self):
-        folga = FolgaFeriado.objects.create(user=self.user, criado_por=self.user, data=date(2026, 6, 17), descricao='Remover folga')
+        folga = FolgaFeriado.objects.create(user=self.user, criado_por=self.user, data_inicio=date(2026, 6, 17), data_fim=date(2026, 6, 17), descricao='Remover folga')
         self.client.force_login(self.user)
 
         response = self.client.post(reverse('horas:folga_feriado_remover', args=[folga.pk]))
@@ -4025,7 +4040,7 @@ class AgendaViewTests(TestCase):
         self.assertFalse(FolgaFeriado.objects.filter(pk=folga.pk).exists())
 
     def test_nao_remove_folga_feriado_criada_por_outro_usuario_exibe_mensagem(self):
-        folga = FolgaFeriado.objects.create(user=self.user, criado_por=self.gp, data=date(2026, 6, 18), descricao='Folga do GP')
+        folga = FolgaFeriado.objects.create(user=self.user, criado_por=self.gp, data_inicio=date(2026, 6, 18), data_fim=date(2026, 6, 18), descricao='Folga do GP')
         self.client.force_login(self.user)
 
         response = self.client.post(reverse('horas:folga_feriado_remover', args=[folga.pk]), follow=True)
@@ -4035,7 +4050,7 @@ class AgendaViewTests(TestCase):
         self.assertContains(response, 'Só é possível excluir registros criados pelo próprio usuário.')
 
     def test_agenda_exibe_folga_feriado_em_card_amarelo(self):
-        FolgaFeriado.objects.create(user=self.user, criado_por=self.user, data=date(2026, 6, 10), descricao='Descanso')
+        FolgaFeriado.objects.create(user=self.user, criado_por=self.user, data_inicio=date(2026, 6, 10), data_fim=date(2026, 6, 12), descricao='Descanso')
         self.client.force_login(self.user)
 
         response = self.client.get(reverse('horas:agenda'), {'mes': '2026-06'})
@@ -4045,8 +4060,8 @@ class AgendaViewTests(TestCase):
         self.assertContains(response, 'Descanso')
 
     def test_agenda_comparativa_exibe_folgas_por_usuario(self):
-        FolgaFeriado.objects.create(user=self.user, criado_por=self.gp, data=date(2026, 6, 10), descricao='Folga usuario')
-        FolgaFeriado.objects.create(user=self.other_user, criado_por=self.gp, data=date(2026, 6, 10), descricao='Folga outro')
+        FolgaFeriado.objects.create(user=self.user, criado_por=self.gp, data_inicio=date(2026, 6, 10), data_fim=date(2026, 6, 10), descricao='Folga usuario')
+        FolgaFeriado.objects.create(user=self.other_user, criado_por=self.gp, data_inicio=date(2026, 6, 10), data_fim=date(2026, 6, 10), descricao='Folga outro')
         self.client.force_login(self.gp)
 
         response = self.client.get(reverse('horas:agenda'), {'mes': '2026-06', 'usuario': [self.user.pk, self.other_user.pk]})
@@ -4064,7 +4079,7 @@ class AgendaViewTests(TestCase):
         self.assertEqual(grupos[self.other_user.pk], ['Folga outro'])
 
     def test_cria_atividade_em_data_com_folga_feriado(self):
-        FolgaFeriado.objects.create(user=self.user, criado_por=self.user, data=date(2026, 6, 10), descricao='Folga pessoal')
+        FolgaFeriado.objects.create(user=self.user, criado_por=self.user, data_inicio=date(2026, 6, 10), data_fim=date(2026, 6, 10), descricao='Folga pessoal')
         self.client.force_login(self.user)
 
         response = self.client.post(
@@ -4089,7 +4104,7 @@ class AgendaViewTests(TestCase):
         self.assertTrue(AgendaAtividade.objects.filter(titulo='Atividade em folga').exists())
 
     def test_gerente_cria_atividade_em_intervalo_com_folga_feriado_do_usuario(self):
-        FolgaFeriado.objects.create(user=self.user, criado_por=self.gp, data=date(2026, 6, 11), descricao='Folga usuario')
+        FolgaFeriado.objects.create(user=self.user, criado_por=self.gp, data_inicio=date(2026, 6, 11), data_fim=date(2026, 6, 11), descricao='Folga usuario')
         self.client.force_login(self.gp)
 
         response = self.client.post(

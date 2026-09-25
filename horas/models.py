@@ -480,14 +480,24 @@ class FolgaFeriado(models.Model):
         on_delete=models.CASCADE,
         related_name='folgas_feriados_criadas',
     )
-    data = models.DateField()
+    data_inicio = models.DateField()
+    data_fim = models.DateField()
     descricao = models.CharField(max_length=200)
     abrangencia_todos = models.BooleanField(default=False)
     criado_em = models.DateTimeField(auto_now_add=True)
     atualizado_em = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ['-data', '-abrangencia_todos', 'user__username', 'pk']
+        ordering = ['-data_inicio', '-data_fim', '-abrangencia_todos', 'user__username', 'pk']
+
+    @property
+    def data(self):
+        return self.data_inicio
+
+    def clean(self):
+        super().clean()
+        if self.data_inicio and self.data_fim and self.data_fim < self.data_inicio:
+            raise ValidationError({'data_fim': 'A data final deve ser maior ou igual a data inicio.'})
 
     @property
     def user_nome(self):
@@ -500,7 +510,7 @@ class FolgaFeriado(models.Model):
         return self.criado_por.get_full_name() or self.criado_por.username
 
     def __str__(self):
-        return f'{self.data} - {self.user_nome}'
+        return f'{self.data_inicio} a {self.data_fim} - {self.user_nome}'
 
 class Registro(models.Model):
     PROCESSADO_SIM = 'S'

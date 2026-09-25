@@ -290,7 +290,11 @@ def _build_agenda_calendar(month_start, atividades, selected_users=None, folgas_
             current_day += timedelta(days=1)
 
     for folga in folgas_feriados or []:
-        folgas_por_dia[folga.data].append(folga)
+        current_day = max(folga.data_inicio, first_day)
+        final_day = min(folga.data_fim, last_day)
+        while current_day <= final_day:
+            folgas_por_dia[current_day].append(folga)
+            current_day += timedelta(days=1)
 
     for items in atividades_por_dia.values():
         items.sort(
@@ -471,10 +475,10 @@ def _agenda_folga_feriado_queryset(request, selected_users, month_start):
         _base_folga_feriado_queryset()
         .filter(
             Q(user__in=selected_users) | Q(abrangencia_todos=True),
-            data__gte=month_first_day,
-            data__lte=month_last_day,
+            data_inicio__lte=month_last_day,
+            data_fim__gte=month_first_day,
         )
-        .order_by('-abrangencia_todos', 'user__username', 'data', 'descricao', 'pk')
+        .order_by('-abrangencia_todos', 'user__username', 'data_inicio', 'data_fim', 'descricao', 'pk')
     )
 
 def _agenda_list_queryset(request, selected_users, month_start):
@@ -2030,10 +2034,10 @@ class FolgasFeriadosView(AuthenticatedViewMixin, SidebarContextMixin, TemplateVi
     def _folgas_queryset(self):
         queryset = _base_folga_feriado_queryset()
         if _user_is_gp(self.request.user):
-            return queryset.order_by('-data', '-abrangencia_todos', 'user__username', 'descricao')
+            return queryset.order_by('-data_inicio', '-data_fim', '-abrangencia_todos', 'user__username', 'descricao')
         return queryset.filter(
             Q(user=self.request.user) | Q(criado_por=self.request.user) | Q(abrangencia_todos=True)
-        ).order_by('-data', '-abrangencia_todos', 'descricao')
+        ).order_by('-data_inicio', '-data_fim', '-abrangencia_todos', 'descricao')
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

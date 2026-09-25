@@ -224,6 +224,6 @@ class AgendaAtividadeAdmin(admin.ModelAdmin):
 
 @admin.register(FolgaFeriado)
 class FolgaFeriadoAdmin(admin.ModelAdmin):
-    list_display = ('data', 'descricao', 'user', 'criado_por', 'criado_em')
-    list_filter = ('data', 'user', 'criado_por')
+    list_display = ('data_inicio', 'data_fim', 'descricao', 'user', 'criado_por', 'criado_em')
+    list_filter = ('data_inicio', 'data_fim', 'user', 'criado_por')
     search_fields = ('descricao', 'user__username', 'criado_por__username')

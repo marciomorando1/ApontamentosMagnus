@@ -1190,6 +1190,30 @@ def _extract_pedido_erp_data(response):
     return None, ['ERP nao retornou dados da geracao do pedido.']
 
 
+def _erp_positive_int(value):
+    try:
+        return int(str(value).strip()) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def _pedido_erp_gerado(pedido):
+    return all(
+        _erp_positive_int(pedido.get(field))
+        for field in ('cod_emp', 'cod_fil', 'num_ped')
+    )
+
+
+def _format_pedido_erp_message(pedido):
+    return (
+        'Geração de Pedido: '
+        f'Empresa = {pedido["cod_emp"]}, '
+        f'Filial = {pedido["cod_fil"]}, '
+        f'Pedido = {pedido["num_ped"]}, '
+        f'Mensagem de Retorno = {pedido["msg_ret"]}'
+    )
+
+
 def _extract_adiciona_servico_erp_data(response):
     serialized_response = serialize_object(response)
     erro_execucao = _get_erp_field(serialized_response, 'erroExecucao')
@@ -1390,20 +1414,19 @@ def _enviar_registros_erp(orcamento, user, registros):
     if errors:
         return None, errors
 
+    pedido_msg = _format_pedido_erp_message(pedido)
+    if not _pedido_erp_gerado(pedido):
+        return None, [pedido_msg]
+
     servico_msg = ''
-    if pedido['num_ped']:
-        servico_msg, servico_errors = _adicionar_servicos_pedido_erp(pedido, servicos, user)
-        if servico_errors:
-            return None, servico_errors
-        if servico_msg.upper().startswith('ERRO'):
-            return None, [servico_msg]
+    servico_msg, servico_errors = _adicionar_servicos_pedido_erp(pedido, servicos, user)
+    if servico_errors:
+        return None, servico_errors
+    if servico_msg.upper().startswith('ERRO'):
+        return None, [servico_msg]
 
     return (
-        'Geração de Pedido: '
-        f'Empresa = {pedido["cod_emp"]}, '
-        f'Filial = {pedido["cod_fil"]}, '
-        f'Pedido = {pedido["num_ped"]}, '
-        f'Mensagem de Retorno = {pedido["msg_ret"]}'
+        pedido_msg +
         f'{", Retorno Serviços = " + servico_msg if servico_msg else ""}'
     ), []
 

@@ -621,6 +621,48 @@ class TimerViewTests(AuthenticatedTestCase):
             },
         )
 
+    @patch('horas.views.ZeepClient')
+    def test_enviar_erp_com_pedido_zerado_nao_salva_registro_processado(self, zeep_client):
+        self.user.profile.envia_erp = True
+        self.user.profile.codigoerp = 321
+        self.user.profile.save(update_fields=['envia_erp', 'codigoerp'])
+        ConfiguracaoSistema.objects.update_or_create(
+            pk=1,
+            defaults={
+                'url_erp': 'https://wsadmin.magnus.com.br',
+                'usuario_erp': 'usuario-erp',
+                'senha_erp': 'senha-erp',
+                'encryption_erp': 0,
+            },
+        )
+        self.orcamento.numero_chamado = '98765'
+        self.orcamento.save(update_fields=['numero_chamado'])
+        zeep_client.return_value.service.novo.return_value = {
+            'CodEmp': '0',
+            'CodFil': '0',
+            'NumPed': '0',
+            'MsgRet': 'Orcamento nao esta aprovado!',
+        }
+
+        response = self.client.post(
+            reverse('horas:timer'),
+            data={
+                'submission_mode': 'enviar_erp',
+                'orcamento': self.orcamento.pk,
+                'data': '2026-08-26',
+                'servico': self.servico.pk,
+                'hora_inicio': '08:15',
+                'hora_fim': '09:45',
+                'descricao': 'Atividade principal',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Geração de Pedido: Empresa = 0, Filial = 0, Pedido = 0')
+        self.assertContains(response, 'class="erp-return-dialog erp-return-dialog-error"', html=False)
+        self.assertEqual(Registro.objects.count(), 0)
+        zeep_client.return_value.service.adicionaServicoApp.assert_not_called()
+
     def test_enviar_erp_exige_orcamento_preenchido(self):
         self.user.profile.envia_erp = True
         self.user.profile.save(update_fields=['envia_erp'])
@@ -1483,6 +1525,33 @@ class RegistrosViewTests(AuthenticatedTestCase):
         self.assertContains(response, 'ERRO: Servico nao relacionado ao orcamento')
         registro.refresh_from_db()
         self.assertEqual(registro.processado, Registro.PROCESSADO_NAO)
+
+    @patch('horas.views.ZeepClient')
+    def test_pedido_erp_zerado_mantem_registro_nao_processado_e_exibe_modal(self, zeep_client):
+        self.configurar_envio_erp_para_processamento(zeep_client)
+        zeep_client.return_value.service.novo.return_value = {
+            'CodEmp': '0',
+            'CodFil': '0',
+            'NumPed': '0',
+            'MsgRet': 'Orcamento nao esta aprovado!',
+        }
+        registro = self.criar_registro(
+            orcamento=self.orcamento,
+            data=date(2026, 8, 26),
+            descricao='Pendente',
+        )
+
+        response = self.client.post(
+            reverse('horas:registro_processar', args=[registro.pk]),
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'class="erp-return-dialog-backdrop"', html=False)
+        self.assertContains(response, 'Geração de Pedido: Empresa = 0, Filial = 0, Pedido = 0')
+        registro.refresh_from_db()
+        self.assertEqual(registro.processado, Registro.PROCESSADO_NAO)
+        zeep_client.return_value.service.adicionaServicoApp.assert_not_called()
 
     def test_nao_desmarca_registro_processado(self):
         self.user.profile.exportacsv = True

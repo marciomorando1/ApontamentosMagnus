@@ -108,9 +108,10 @@
           </tr>
         </thead>
         <tbody>
-          {% for atividade in reservas %}
+          {% for ocorrencia in reservas_ocorrencias %}
+            {% with atividade=ocorrencia.atividade data_reserva=ocorrencia.data %}
             <tr>
-              <td class="mono">{{ atividade.data_inicio|date:'d/m/Y' }}</td>
+              <td class="mono">{{ data_reserva|date:'d/m/Y' }}</td>
               <td>{{ atividade.user.get_full_name|default:atividade.user.username }}</td>
               <td>
                 <button
@@ -132,13 +133,14 @@
                   data-description="{{ atividade.descricao }}"
                   data-can-manage="{% if atividade.can_manage %}true{% else %}false{% endif %}"
                   data-edit-url="{% if atividade.can_manage %}{% url 'horas:agenda_editar' atividade.pk %}{% endif %}"
-                  data-point-url="{% url 'horas:timer' %}?data={{ atividade.data_inicio|date:'Y-m-d' }}&orcamento={{ atividade.orcamento_id }}{% if atividade.servico_id %}&servico={{ atividade.servico_id }}{% endif %}"
+                  data-point-url="{% url 'horas:timer' %}?data={{ data_reserva|date:'Y-m-d' }}&orcamento={{ atividade.orcamento_id }}{% if atividade.servico_id %}&servico={{ atividade.servico_id }}{% endif %}"
                 >{{ atividade.titulo }}</button>
               </td>
               <td class="mono">{{ atividade.orcamento.codigo_cliente|default:'-' }}</td>
               <td><span class="badge-code">{{ atividade.orcamento.codigo }}</span></td>
               <td class="mono">{{ atividade.numero_chamado|default:'-' }}</td>
             </tr>
+            {% endwith %}
           {% empty %}
             <tr><td colspan="6"><div class="empty-state">Nenhuma atividade encontrada.</div></td></tr>
           {% endfor %}

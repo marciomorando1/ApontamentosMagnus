@@ -4106,6 +4106,34 @@ class AgendaViewTests(TestCase):
         self.assertContains(response, '.agenda-modal-backdrop.is-open { display: flex; }', html=False)
         self.assertNotContains(response, 'Reserva fora do filtro')
 
+    def test_minhas_reservas_lista_uma_linha_por_dia_da_atividade(self):
+        atividade = self.criar_atividade(
+            user=self.user,
+            criado_por=self.gp,
+            titulo='Reserva de tres dias',
+            data_inicio=date(2026, 10, 13),
+            data_fim=date(2026, 10, 15),
+        )
+        self.client.force_login(self.gp)
+
+        response = self.client.get(
+            reverse('horas:minhas_reservas'),
+            {'de': '2026-10-01', 'ate': '2026-10-31'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(list(response.context['reservas']), [atividade])
+        self.assertEqual(
+            [ocorrencia['data'] for ocorrencia in response.context['reservas_ocorrencias']],
+            [date(2026, 10, 13), date(2026, 10, 14), date(2026, 10, 15)],
+        )
+        self.assertContains(response, '13/10/2026')
+        self.assertContains(response, '14/10/2026')
+        self.assertContains(response, '15/10/2026')
+        self.assertContains(response, 'data=2026-10-13', html=False)
+        self.assertContains(response, 'data=2026-10-14', html=False)
+        self.assertContains(response, 'data=2026-10-15', html=False)
+
     def test_menu_folgas_feriados_aparece_para_usuario_logado(self):
         self.client.force_login(self.user)
 

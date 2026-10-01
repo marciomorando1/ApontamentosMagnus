@@ -2000,6 +2000,15 @@ class MinhasReservasView(
         for reserva in reservas:
             reserva.can_manage = _can_manage_agenda_activity(self.request.user, reserva)
 
+        reservas_ocorrencias = []
+        for reserva in reservas:
+            primeira_data = max(reserva.data_inicio, data_inicial) if data_inicial else reserva.data_inicio
+            ultima_data = min(reserva.data_fim, data_final) if data_final else reserva.data_fim
+            data_ocorrencia = primeira_data
+            while data_ocorrencia <= ultima_data:
+                reservas_ocorrencias.append({'atividade': reserva, 'data': data_ocorrencia})
+                data_ocorrencia += timedelta(days=1)
+
         usuarios = (
             User.objects
             .filter(agenda_atividades__criado_por=self.request.user)
@@ -2029,6 +2038,7 @@ class MinhasReservasView(
             {
                 'section': 'minhas_reservas',
                 'reservas': reservas,
+                'reservas_ocorrencias': reservas_ocorrencias,
                 'usuarios_filtro': usuarios,
                 'codigos_clientes': codigos_clientes,
                 'orcamentos_filtro': orcamentos,

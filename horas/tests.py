@@ -2430,6 +2430,46 @@ class OrcamentosViewTests(AuthenticatedTestCase):
         self.assertFalse(Orcamento.objects.filter(codigo='502').exists())
         self.assertFalse(Orcamento.objects.filter(codigo='503').exists())
 
+    @patch('horas.views._buscar_orcamentos_erp')
+    def test_importar_erp_inativa_ausentes_e_reativa_retornados(self, buscar_orcamentos_erp):
+        ausente = Orcamento.objects.create(codigo='600', responsavel=self.user)
+        retornado = Orcamento.objects.create(codigo='601', ativo=False, responsavel=self.user)
+        rejeitado = Orcamento.objects.create(codigo='602', responsavel=self.user)
+        buscar_orcamentos_erp.return_value = ([
+            {
+                'codigo': codigo,
+                'nome': 'Projeto ERP',
+                'codigo_cliente': cliente,
+                'numero_chamado': '300',
+                'codigo_responsavel': '777',
+                'horas': Decimal('8.00'),
+                'horas_apontadas': Decimal('0.00'),
+            }
+            for codigo, cliente in [('601', '200'), ('602', '999')]
+        ], [])
+
+        response = self.client.post(reverse('horas:orcamentos'), data={'action': 'importar_erp'})
+
+        self.assertEqual(response.status_code, 200)
+        ausente.refresh_from_db()
+        retornado.refresh_from_db()
+        rejeitado.refresh_from_db()
+        self.assertFalse(ausente.ativo)
+        self.assertTrue(retornado.ativo)
+        self.assertTrue(rejeitado.ativo)
+        self.assertEqual(Orcamento.objects.count(), 3)
+
+    @patch('horas.views._buscar_orcamentos_erp')
+    def test_importar_erp_preserva_status_quando_consulta_falha(self, buscar_orcamentos_erp):
+        orcamento = Orcamento.objects.create(codigo='600', responsavel=self.user)
+        for retorno, erro in [([], None), (['ERP retornou erro.'], None), ([], RuntimeError('ERP indisponivel'))]:
+            with self.subTest(retorno=retorno, erro=erro):
+                buscar_orcamentos_erp.return_value = ([], retorno or ['ERP nao retornou orcamentos para importar.'])
+                buscar_orcamentos_erp.side_effect = erro
+                self.client.post(reverse('horas:orcamentos'), data={'action': 'importar_erp'})
+                orcamento.refresh_from_db()
+                self.assertTrue(orcamento.ativo)
+
     @patch('horas.views.ZeepClient')
     @patch('horas.views.SeniorErpTransport')
     def test_busca_orcamentos_erp_chama_porta_buscar_orcamentos_2(self, erp_transport, zeep_client):

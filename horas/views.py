@@ -1676,6 +1676,9 @@ def _salvar_orcamentos_erp(orcamentos_data):
     }
 
     with transaction.atomic():
+        codigos_retornados = {item['codigo'] for item in orcamentos_data if item['codigo']}
+        Orcamento.objects.filter(ativo=True).exclude(codigo__in=codigos_retornados).update(ativo=False)
+
         for item in orcamentos_data:
             codigo = item['codigo']
             motivos = []

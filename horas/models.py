@@ -632,8 +632,9 @@ class Registro(models.Model):
 
             orcamento_atual = orcamentos[self.orcamento_id]
             novo_total = orcamento_atual.horas_apontadas + self.total_horas_decimal
-            if novo_total > orcamento_atual.total_horas_disponibilizadas:
-                raise ValidationError({'orcamento': self._limite_orcamento_message(orcamento_atual)})
+            # A decisão de processar o apontamento cabe ao retorno do webservice.
+            # if novo_total > orcamento_atual.total_horas_disponibilizadas:
+            #     raise ValidationError({'orcamento': self._limite_orcamento_message(orcamento_atual)})
 
             if anterior and anterior.orcamento_id != self.orcamento_id:
                 orcamento_anterior.save(update_fields=['horas_apontadas'])

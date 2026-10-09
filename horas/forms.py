@@ -226,6 +226,8 @@ class RegistroForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         restrict_servicos_by_orcamento = kwargs.pop('restrict_servicos_by_orcamento', False)
         super().__init__(*args, **kwargs)
+        self.fields['descricao'].required = True
+        self.fields['descricao'].error_messages['required'] = 'Preencha a descrição da atividade.'
         self.fields['descricao'].widget.attrs['maxlength'] = REGISTRO_DESCRICAO_MAX_LENGTH
         self.fields['descricao'].widget.attrs['data-no-linebreak'] = 'true'
         if not self.is_bound and not self.instance.pk:

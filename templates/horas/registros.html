@@ -39,9 +39,11 @@
       </div>
     {% endif %}
     <button class="btn btn-ghost btn-sm" type="submit">Filtrar</button>
+    {% comment "Botao Exportar CSV preservado para reativacao futura." %}
     {% if can_filter_usuario %}
       <a class="btn btn-primary btn-sm" href="{% url 'horas:exportar_csv' %}?de={{ filtros.de }}&ate={{ filtros.ate }}&orcamento={{ filtros.orcamento }}&usuario={{ filtros.usuario }}">⬇ Exportar CSV</a>
     {% endif %}
+    {% endcomment %}
   </form>
 
   <div class="table-wrap">

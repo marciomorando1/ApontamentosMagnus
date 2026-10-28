@@ -551,6 +551,15 @@ class Registro(models.Model):
         choices=PROCESSADO_CHOICES,
         default=PROCESSADO_NAO,
     )
+    processado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        verbose_name='Processado por',
+        on_delete=models.SET_NULL,
+        related_name='registros_processados',
+        null=True,
+        blank=True,
+        editable=False,
+    )
     descricao = models.TextField(blank=True)
     criado_em = models.DateTimeField(auto_now_add=True)
     atualizado_em = models.DateTimeField(auto_now=True)

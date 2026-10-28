@@ -130,7 +130,8 @@ class OrcamentoAdmin(admin.ModelAdmin):
 
 @admin.register(Registro)
 class RegistroAdmin(admin.ModelAdmin):
-    list_display = ('user', 'data', 'hora_inicio', 'hora_fim', 'orcamento', 'fase', 'servico', 'processado', 'total_formatado')
+    list_display = ('user', 'data', 'hora_inicio', 'hora_fim', 'orcamento', 'fase', 'servico', 'processado', 'processado_por', 'total_formatado')
+    readonly_fields = ('processado_por',)
     list_filter = (('data', admin.DateFieldListFilter), 'user', 'orcamento', 'fase', 'servico', 'processado')
     date_hierarchy = 'data'
     actions = ('marcar_como_nao_processado',)
@@ -153,6 +154,7 @@ class RegistroAdmin(admin.ModelAdmin):
     def marcar_como_nao_processado(self, request, queryset):
         atualizados = queryset.update(
             processado=Registro.PROCESSADO_NAO,
+            processado_por=None,
             atualizado_em=timezone.now(),
         )
         self.message_user(

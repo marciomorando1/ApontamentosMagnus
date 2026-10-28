@@ -164,6 +164,7 @@ def _save_registro_forms(row_forms, user, *, processado=Registro.PROCESSADO_NAO)
             registro = form.save(commit=False)
             registro.user = user
             registro.processado = processado
+            registro.processado_por = user if processado == Registro.PROCESSADO_SIM else None
             registro.save()
             registros.append(registro)
     return registros
@@ -2606,7 +2607,8 @@ class RegistroProcessarView(View):
             return redirect(destino)
 
         registro.processado = Registro.PROCESSADO_SIM
-        registro.save(update_fields=['processado', 'atualizado_em'])
+        registro.processado_por = request.user
+        registro.save(update_fields=['processado', 'processado_por', 'atualizado_em'])
         messages.success(request, mensagem_erp, extra_tags=ERP_MODAL_MESSAGE_TAG)
         return redirect(destino)
 
@@ -3332,7 +3334,11 @@ def exportar_registros_csv(request):
 
         Registro.objects.filter(
             pk__in=[registro.pk for registro in registros_exportados],
-        ).update(processado=Registro.PROCESSADO_SIM, atualizado_em=timezone.now())
+        ).update(
+            processado=Registro.PROCESSADO_SIM,
+            processado_por=request.user,
+            atualizado_em=timezone.now(),
+        )
 
     response = HttpResponse(content_type='text/csv; charset=utf-8')
     response['Content-Disposition'] = (

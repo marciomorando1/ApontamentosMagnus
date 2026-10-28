@@ -558,6 +558,7 @@ class TimerViewTests(AuthenticatedTestCase):
         self.assertEqual(Registro.objects.count(), 2)
         self.assertEqual(Registro.objects.filter(user=self.user).count(), 2)
         self.assertEqual(Registro.objects.filter(processado=Registro.PROCESSADO_SIM).count(), 2)
+        self.assertEqual(Registro.objects.filter(processado_por=self.user).count(), 2)
         self.assertTrue(
             Registro.objects.filter(
                 data='2026-08-26',
@@ -1349,6 +1350,7 @@ class RegistrosViewTests(AuthenticatedTestCase):
         self.assertNotIn('Meu registro', content)
         registro_exportado.refresh_from_db()
         self.assertEqual(registro_exportado.processado, Registro.PROCESSADO_SIM)
+        self.assertEqual(registro_exportado.processado_por, self.user)
 
     def test_csv_exporta_apenas_registros_nao_processados(self):
         self.user.profile.exportacsv = True
@@ -1525,6 +1527,7 @@ class RegistrosViewTests(AuthenticatedTestCase):
         self.assertContains(response, 'ERRO: Servico nao relacionado ao orcamento')
         registro.refresh_from_db()
         self.assertEqual(registro.processado, Registro.PROCESSADO_NAO)
+        self.assertIsNone(registro.processado_por)
 
     @patch('horas.views.ZeepClient')
     def test_pedido_erp_zerado_mantem_registro_nao_processado_e_exibe_modal(self, zeep_client):
@@ -1623,6 +1626,8 @@ class RegistrosViewTests(AuthenticatedTestCase):
             encryption=0,
             parameters={'numOrc': 17275, 'codRep': 654},
         )
+        self.assertEqual(registro.processado_por, self.user)
+        self.assertNotEqual(registro.processado_por, registro.user)
 
 
 class ResumoViewTests(AuthenticatedTestCase):
@@ -2040,6 +2045,7 @@ class RegistroAdminTests(AuthenticatedTestCase):
         registro = self.criar_registro(
             orcamento=self.orcamento,
             processado=Registro.PROCESSADO_SIM,
+            processado_por=self.user,
         )
 
         response = self.client.post(
@@ -2056,6 +2062,7 @@ class RegistroAdminTests(AuthenticatedTestCase):
         registro.refresh_from_db()
         self.assertEqual(registro.processado, Registro.PROCESSADO_NAO)
         self.assertContains(response, '1 registro(s) marcado(s) como nao processado(s).')
+        self.assertIsNone(registro.processado_por)
 
     def test_admin_filtra_registros_por_data_de_apontamento(self):
         data_filtrada = date(2026, 6, 10)

@@ -2751,11 +2751,11 @@ class SolicitacoesHorasView(AuthenticatedViewMixin, SidebarContextMixin, Templat
             solicitacao.save()
             messages.success(
                 request,
-                f'SolicitaÃ§Ã£o {solicitacao.numero_solicitacao} enviada para aprovaÃ§Ã£o.',
+                f'Solicitação {solicitacao.numero_solicitacao} enviada para aprovação.',
             )
             return redirect('horas:solicitacoes_horas')
 
-        messages.error(request, 'Corrija os campos destacados antes de enviar a solicitaÃ§Ã£o.')
+        messages.error(request, 'Corrija os campos destacados antes de enviar a solicitação.')
         return self.render_to_response(self.get_context_data(form=form))
 
 
@@ -2803,22 +2803,22 @@ class SolicitacaoHorasDecisaoView(
                 orcamento__responsavel=request.user,
             )
             if solicitacao.situacao != SolicitacaoHoras.SITUACAO_AGUARDANDO:
-                messages.warning(request, 'Esta solicitaÃ§Ã£o jÃ¡ foi processada.')
+                messages.warning(request, 'Esta solicitação já foi processada.')
                 return redirect('horas:solicitacoes_horas_pendentes')
 
             if decisao == 'aprovar':
                 solicitacao.situacao = SolicitacaoHoras.SITUACAO_APROVADO
                 solicitacao.motivo_reprovacao = observacao
-                mensagem = 'SolicitaÃ§Ã£o aprovada.'
+                mensagem = 'Solicitação aprovada.'
             elif decisao == 'reprovar':
                 if not observacao:
-                    messages.error(request, 'Informe a observaÃ§Ã£o para reprovar a solicitaÃ§Ã£o.')
+                    messages.error(request, 'Informe a observação para reprovar a solicitação.')
                     return redirect('horas:solicitacoes_horas_pendentes')
                 solicitacao.situacao = SolicitacaoHoras.SITUACAO_REPROVADO
                 solicitacao.motivo_reprovacao = observacao
-                mensagem = 'SolicitaÃ§Ã£o reprovada.'
+                mensagem = 'Solicitação reprovada.'
             else:
-                messages.error(request, 'DecisÃ£o invÃ¡lida.')
+                messages.error(request, 'Decisão inválida.')
                 return redirect('horas:solicitacoes_horas_pendentes')
 
             solicitacao.decidido_por = request.user
@@ -3202,10 +3202,10 @@ class ServicosView(GerenteProjetosRequiredMixin, AuthenticatedViewMixin, Sidebar
         form = ServicoForm(request.POST)
         if form.is_valid():
             form.save()
-            messages.success(request, 'ServiÃ§o adicionado com sucesso.')
+            messages.success(request, 'Serviço adicionado com sucesso.')
             return redirect('horas:servicos')
 
-        messages.error(request, 'Corrija os campos destacados antes de adicionar o serviÃ§o.')
+        messages.error(request, 'Corrija os campos destacados antes de adicionar o serviço.')
         return self.render_to_response(self.get_context_data(form=form))
 
 
@@ -3291,13 +3291,13 @@ class OrcamentoDeleteView(GerenteProjetosRequiredMixin, AuthenticatedViewMixin, 
         orcamento = get_object_or_404(queryset, pk=pk)
         try:
             orcamento.delete()
-            messages.success(request, 'OrÃ§amento removido.')
+            messages.success(request, 'Orçamento removido.')
         except ProtectedError:
             orcamento.ativo = False
             orcamento.save(update_fields=['ativo'])
             messages.warning(
                 request,
-                'O orÃ§amento possui registros vinculados e foi desativado em vez de removido.',
+                'O orçamento possui registros vinculados e foi desativado em vez de removido.',
             )
         return redirect('horas:orcamentos')
 
@@ -3314,7 +3314,7 @@ class ServicoDeleteView(GerenteProjetosRequiredMixin, AuthenticatedViewMixin, Vi
     def post(self, request, pk):
         servico = get_object_or_404(Servico, pk=pk)
         servico.delete()
-        messages.success(request, 'ServiÃ§o removido.')
+        messages.success(request, 'Serviço removido.')
         return redirect('horas:servicos')
 
 

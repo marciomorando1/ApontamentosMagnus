@@ -1349,8 +1349,22 @@ class RegistrosViewTests(AuthenticatedTestCase):
         self.assertIn('Registro de outro usuario', content)
         self.assertNotIn('Meu registro', content)
         registro_exportado.refresh_from_db()
-        self.assertEqual(registro_exportado.processado, Registro.PROCESSADO_SIM)
-        self.assertEqual(registro_exportado.processado_por, self.user)
+        self.assertEqual(registro_exportado.processado, Registro.PROCESSADO_NAO)
+        self.assertIsNone(registro_exportado.processado_por)
+
+    def test_csv_nao_altera_registro_e_permite_exportar_novamente(self):
+        self.user.profile.exportacsv = True
+        self.user.profile.save(update_fields=['exportacsv'])
+        registro = self.criar_registro(orcamento=self.orcamento)
+        antes = Registro.objects.values().get(pk=registro.pk)
+
+        primeira = self.client.get(reverse('horas:exportar_csv'))
+        segunda = self.client.get(reverse('horas:exportar_csv'))
+
+        self.assertEqual(primeira.status_code, 200)
+        self.assertEqual(segunda.status_code, 200)
+        self.assertEqual(primeira.content, segunda.content)
+        self.assertEqual(Registro.objects.values().get(pk=registro.pk), antes)
 
     def test_csv_exporta_apenas_registros_nao_processados(self):
         self.user.profile.exportacsv = True

@@ -3324,21 +3324,10 @@ def exportar_registros_csv(request):
         raise PermissionDenied
 
     registros, _, _, _, _ = _filter_registros(request, allow_usuario_filter=True)
-    with transaction.atomic():
-        registros_exportados = list(
-            registros.select_for_update(of=('self',)).filter(processado=Registro.PROCESSADO_NAO)
-        )
-        if not registros_exportados:
-            messages.warning(request, 'Nenhum registro pendente para exportar.')
-            return redirect('horas:registros')
-
-        Registro.objects.filter(
-            pk__in=[registro.pk for registro in registros_exportados],
-        ).update(
-            processado=Registro.PROCESSADO_SIM,
-            processado_por=request.user,
-            atualizado_em=timezone.now(),
-        )
+    registros_exportados = list(registros.filter(processado=Registro.PROCESSADO_NAO))
+    if not registros_exportados:
+        messages.warning(request, 'Nenhum registro pendente para exportar.')
+        return redirect('horas:registros')
 
     response = HttpResponse(content_type='text/csv; charset=utf-8')
     response['Content-Disposition'] = (

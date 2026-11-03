@@ -1,0 +1,115 @@
+{% extends 'base.html' %}
+{% block title %}Painel | Apontamento de Horas{% endblock %}
+{% block content %}
+<div class="section-header">
+  <div><h1 class="page-title">Painel</h1><div class="section-label">Solicitações</div></div>
+</div>
+{% if not can_view_painel %}
+  <div class="empty-inline">Nenhuma solicitação disponível para seu usuário.</div>
+{% else %}
+<style>
+  /* Keep modal positioning with the page, as in Agenda, even with older static CSS. */
+  .agenda-modal-backdrop { position: fixed; inset: 0; z-index: 5000; display: none; align-items: center; justify-content: center; padding: 24px; background: rgba(0, 0, 0, 0.52); }
+  .agenda-modal-backdrop[hidden] { display: none !important; }
+  .agenda-modal-backdrop.is-open:not([hidden]) { display: flex; }
+  .agenda-modal { width: min(920px, 100%); max-height: min(86vh, 820px); overflow: auto; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: var(--popover-shadow); }
+  .agenda-modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 20px 22px 14px; border-bottom: 1px solid var(--border); }
+  .agenda-modal-title { margin: 0; font-size: 22px; font-weight: 600; color: var(--text); line-height: 1.2; }
+  .agenda-modal-subtitle { margin-top: 4px; color: var(--muted); font-size: 12px; }
+  .agenda-modal-close { min-width: 34px; min-height: 34px; padding: 0; border-radius: 8px; }
+  .agenda-modal-body { padding: 18px 22px 22px; }
+  .agenda-modal-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
+  .kanban-board { display: grid; grid-template-columns: repeat(6, minmax(230px, 1fr)); gap: 16px; overflow-x: auto; padding-bottom: 18px; align-items: start; }
+  .kanban-column { background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 14px; min-height: 250px; }
+  .kanban-column h2 { font-size: 13px; display: flex; justify-content: space-between; gap: 10px; margin: 0 0 16px; }
+  .kanban-card { display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 12px; color: var(--text); text-decoration: none; overflow-wrap: anywhere; }
+  .kanban-card:hover, .kanban-card:focus-visible { border-color: var(--accent); }
+  .kanban-card[data-situacao="AGUARDANDO_CLIENTE"] { background: #ffedd5; border-color: #ea580c; color: #7c2d12; }
+  .kanban-card[data-situacao="AGUARDANDO_INTERNO"] { background: #dbeafe; border-color: #2563eb; color: #1e3a8a; }
+  .kanban-card[data-situacao="EM_ANDAMENTO"] { background: #dcfce7; border-color: #16a34a; color: #14532d; }
+  .kanban-card[data-situacao]:not([data-situacao=""]) dt { color: inherit; }
+  .kanban-situacao { display: block; margin-bottom: 12px; font-size: 11px; font-weight: 600; }
+  .kanban-card dl { margin: 0; }
+  .kanban-card dt { color: var(--muted); font-size: 11px; margin-top: 10px; }
+  .kanban-card dd { font-size: 13px; margin: 3px 0 0; }
+  .kanban-card dt:first-child { margin-top: 0; }
+  .kanban-empty { font-size: 12px; color: var(--muted); }
+  .agenda-modal-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  .agenda-modal-grid .field.is-wide { grid-column: 1 / -1; }
+  .agenda-modal-value { min-height: 42px; padding: 11px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--input-bg); color: var(--text); font-size: 13px; line-height: 1.35; white-space: pre-wrap; overflow-wrap: anywhere; }
+  @media (max-width: 700px) {
+    .agenda-modal-backdrop { padding: 12px; }
+    .agenda-modal-grid { grid-template-columns: 1fr; }
+  }
+</style>
+<div class="kanban-board" aria-label="Solicitações por status">
+{% for coluna in colunas %}
+  <section class="kanban-column" aria-label="{{ coluna.label }}">
+    <h2>{{ coluna.label }} <span>{{ coluna.solicitacoes|length }}</span></h2>
+    {% for item in coluna.solicitacoes %}
+    <a class="kanban-card" href="{% url 'horas:painel_solicitacao' item.pk %}" data-situacao="{{ item.situacao }}" data-solicitacao-modal-open="solicitacao-modal-{{ item.pk }}" aria-haspopup="dialog" aria-label="Editar solicitação {{ item.pk }}: {{ item.descricao }}">
+      {% if item.situacao %}<span class="kanban-situacao">{{ item.get_situacao_display }}</span>{% endif %}
+      <dl>
+        <dt>ORÇAMENTO</dt><dd>{{ item.orcamento }}</dd>
+        <dt>CLIENTE</dt><dd>{{ item.cliente }}</dd>
+        <dt>PMO</dt><dd>{{ item.pmo }}</dd>
+        <dt>DATA INÍCIO PLANEJADO</dt><dd>{{ item.data_inicio_planejamento|date:'d/m/Y'|default:'—' }}</dd>
+        <dt>DATA FIM PLANEJADA</dt><dd>{{ item.data_fim_planejamento|date:'d/m/Y'|default:'—' }}</dd>
+      </dl>
+    </a>
+    {% empty %}<p class="kanban-empty">Nenhuma solicitação.</p>{% endfor %}
+  </section>
+{% endfor %}
+</div>
+{% for coluna in colunas %}
+  {% for item in coluna.solicitacoes %}
+    {% include 'horas/_painel_solicitacao_modal.html' %}
+  {% endfor %}
+{% endfor %}
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  let activeModal = null;
+  let trigger = null;
+  let previousOverflow = '';
+  function closeModal() {
+    if (!activeModal) return;
+    activeModal.classList.remove('is-open');
+    activeModal.hidden = true;
+    activeModal = null;
+    document.body.style.overflow = previousOverflow;
+    trigger?.focus();
+  }
+  document.addEventListener('click', event => {
+    const opener = event.target.closest('[data-solicitacao-modal-open]');
+    if (opener) {
+      const modal = document.getElementById(opener.dataset.solicitacaoModalOpen);
+      if (!modal) return;
+      event.preventDefault();
+      closeModal();
+      trigger = opener;
+      activeModal = modal;
+      previousOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      modal.hidden = false;
+      modal.classList.add('is-open');
+      modal.querySelector('[data-solicitacao-modal-close]').focus();
+      return;
+    }
+    if (activeModal && (event.target === activeModal || event.target.closest('[data-solicitacao-modal-close]'))) closeModal();
+  });
+  document.addEventListener('keydown', event => {
+    if (!activeModal) return;
+    if (event.key === 'Escape') { event.preventDefault(); closeModal(); }
+    if (event.key === 'Tab') {
+      const controls = activeModal.querySelectorAll('button, select, a[href], input:not([type="hidden"]), textarea');
+      const first = controls[0], last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    }
+  });
+})();
+</script>
+{% endblock %}

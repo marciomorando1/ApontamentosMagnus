@@ -1,4 +1,5 @@
 from datetime import date
+import re
 from decimal import Decimal, InvalidOperation
 
 from django import forms
@@ -20,6 +21,7 @@ from .models import (
     Registro,
     Servico,
     SolicitacaoHoras,
+    Solicitacao,
     format_decimal_hours,
 )
 
@@ -833,3 +835,95 @@ EstimativaItemCreateFormSet = inlineformset_factory(
     min_num=0,
     validate_min=False,
 )
+
+
+class SolicitacaoDurationField(DurationField):
+    def prepare_value(self, value):
+        return '' if value in (None, '') else super().prepare_value(value)
+
+    def to_python(self, value):
+        if value in (None, ''):
+            return None
+        if not re.fullmatch(r'\d{2,}:[0-5]\d', str(value).strip()):
+            raise forms.ValidationError(self.error_messages['invalid'], code='invalid')
+        return super().to_python(value)
+
+
+class SolicitacaoPainelForm(forms.ModelForm):
+    class Meta:
+        model = Solicitacao
+        fields = ['status', 'situacao']
+
+
+class SolicitacaoForm(forms.ModelForm):
+    quantidade_horas = SolicitacaoDurationField(label='Qtde de Horas Previstas', required=True, compact_digits=True)
+    quantidade_horas_executadas = SolicitacaoDurationField(label='Qtde de Horas Executadas', required=False, compact_digits=True)
+    status = forms.ChoiceField(choices=Solicitacao.STATUS_CHOICES, initial='A_FAZER', required=False)
+
+    class Meta:
+        model = Solicitacao
+        fields = ['orcamento', 'numero_chamado', 'tipo', 'descricao', 'pmo', 'produto',
+                  'codigo_cliente', 'cliente', 'descritivo_necessidade', 'quantidade_horas', 'data_maxima_entrega',
+                  'quantidade_horas_executadas', 'data_inicio_planejamento', 'data_fim_planejamento', 'status', 'situacao', 'pmo_usuario']
+        widgets = {
+            'data_maxima_entrega': DateInput(),
+            'data_inicio_planejamento': DateInput(),
+            'data_fim_planejamento': DateInput(),
+            'descritivo_necessidade': forms.Textarea(attrs={'rows': 5}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for name in ('orcamento', 'pmo', 'codigo_cliente', 'cliente'):
+            self.fields[name].widget.attrs.update({'autocomplete': 'off', 'data-suggestion': name})
+        self.fields['orcamento'].help_text = 'Digite livremente ou busque um orçamento cadastrado.'
+        for name in ('quantidade_horas', 'quantidade_horas_executadas'):
+            self.fields[name].help_text = 'Informe no formato HH:MM (ex.: 01:30).'
+        self.fields['pmo_usuario'].widget = forms.HiddenInput()
+        self.fields['pmo_usuario'].queryset = User.objects.filter(profile__is_pmo=True)
+
+    def clean(self):
+        data = super().clean()
+        inicio = data.get('data_inicio_planejamento')
+        fim = data.get('data_fim_planejamento')
+        if inicio and fim and fim < inicio:
+            self.add_error('data_fim_planejamento', 'A data fim deve ser igual ou posterior à data início do planejamento.')
+        budget = Orcamento.objects.select_related('pmo').filter(codigo=data.get('orcamento', '')).first()
+        self.instance.orcamento_cadastrado = budget
+        selected_pmo = data.get('pmo_usuario')
+        pmo_text = data.get('pmo', '')
+        if budget and data.get('tipo') == 'EXECUCAO':
+            data['pmo_usuario'] = budget.pmo
+            self._errors.pop('pmo_usuario', None)
+        elif selected_pmo and pmo_text in (selected_pmo.username, selected_pmo.get_full_name()):
+            data['pmo_usuario'] = selected_pmo
+        else:
+            matches = [user for user in User.objects.filter(profile__is_pmo=True)
+                       if pmo_text and pmo_text in (user.username, user.get_full_name())]
+            data['pmo_usuario'] = matches[0] if len(matches) == 1 else None
+        if budget:
+            data['numero_chamado'] = budget.numero_chamado
+            self._errors.pop('numero_chamado', None)
+            if data.get('tipo') == 'EXECUCAO':
+                for name, value in {'pmo': budget.pmo_nome, 'codigo_cliente': budget.codigo_cliente,
+                                    'cliente': budget.nome_cliente}.items():
+                    self._errors.pop(name, None)
+                    data[name] = value
+                    if not value:
+                        self.add_error(name, 'Preencha este dado no cadastro do orçamento antes de continuar.')
+        return data
+
+    def clean_status(self):
+        return self.cleaned_data.get('status') or 'A_FAZER'
+
+    def clean_quantidade_horas_executadas(self):
+        value = self.cleaned_data['quantidade_horas_executadas']
+        if value is not None and value < 0:
+            raise forms.ValidationError('Informe uma quantidade de horas igual ou maior que zero.')
+        return value
+
+    def clean_quantidade_horas(self):
+        value = self.cleaned_data['quantidade_horas']
+        if value <= 0:
+            raise forms.ValidationError('Informe uma quantidade de horas maior que zero.')
+        return value

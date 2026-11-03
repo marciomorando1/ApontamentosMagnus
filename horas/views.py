@@ -61,6 +61,8 @@ from .forms import (
     RequiredPasswordChangeForm,
     ServicoForm,
     SolicitacaoHorasForm,
+    SolicitacaoForm,
+    SolicitacaoPainelForm,
 )
 from .models import (
     AgendaAtividade,
@@ -75,6 +77,7 @@ from .models import (
     Registro,
     Servico,
     SolicitacaoHoras,
+    Solicitacao,
     UserProfile,
 )
 
@@ -1818,6 +1821,7 @@ class SidebarContextMixin:
         context['is_gp'] = _user_is_gp(self.request.user)
         context['is_gerente_projetos'] = _user_is_project_manager(self.request.user)
         context['is_admin'] = _user_is_admin(self.request.user)
+        context['can_view_painel'] = context['is_admin'] or getattr(getattr(self.request.user, 'profile', None), 'is_pmo', False)
         context['is_terceiro'] = _user_is_terceiro(self.request.user)
         context['pendencias_aprovacao_count'] = 0
         if context['is_gp']:
@@ -1917,6 +1921,85 @@ class LogsRotinaView(AdministradorRequiredMixin, AuthenticatedViewMixin, Sidebar
             }
         )
         return context
+
+
+class AbrirSolicitacaoView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
+    template_name = 'horas/abrir_solicitacao.html'
+    extra_context = {'section': 'abrir_solicitacao'}
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.setdefault('form', SolicitacaoForm())
+        context['solicitacao_orcamentos'] = [
+            {'value': item.codigo, 'label': str(item), 'chamado': item.numero_chamado,
+             'pmo': item.pmo_nome, 'pmo_usuario': item.pmo_id, 'codigo_cliente': item.codigo_cliente, 'cliente': item.nome_cliente}
+            for item in Orcamento.objects.select_related('pmo').order_by('codigo')
+        ]
+        context['solicitacao_pmos'] = [
+            {'value': user.get_full_name() or user.username, 'user_id': user.pk, 'label': f'{user.get_full_name() or user.username} ({user.username})'}
+            for user in User.objects.filter(profile__is_pmo=True).order_by('first_name', 'username')
+        ]
+        context['solicitacao_clientes'] = [
+            {'codigo': item.Codigo_Cliente, 'nome': item.Nome_Cliente}
+            for item in Cliente.objects.order_by('Codigo_Cliente')
+        ]
+        return context
+
+    def post(self, request, *args, **kwargs):
+        form = SolicitacaoForm(request.POST)
+        if form.is_valid():
+            solicitacao = form.save(commit=False)
+            solicitacao.solicitante = request.user
+            solicitacao.save()
+            messages.success(request, f'Solicitação #{solicitacao.pk} cadastrada com sucesso.')
+            return redirect('horas:abrir_solicitacao')
+        return self.render_to_response(self.get_context_data(form=form))
+
+
+
+def _painel_solicitacoes(user):
+    queryset = Solicitacao.objects.select_related('pmo_usuario')
+    if _user_is_admin(user):
+        return queryset
+    if getattr(getattr(user, 'profile', None), 'is_pmo', False):
+        return queryset.filter(pmo_usuario=user)
+    return queryset.none()
+
+
+class PainelView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
+    template_name = 'horas/painel.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        columns = {status: {'status': status, 'label': label, 'solicitacoes': []}
+                   for status, label in Solicitacao.STATUS_CHOICES}
+        for item in _painel_solicitacoes(self.request.user):
+            item.painel_form = SolicitacaoPainelForm(instance=item, auto_id=f'id_solicitacao_{item.pk}_%s')
+            columns[item.status]['solicitacoes'].append(item)
+        context.update(section='painel', colunas=list(columns.values()))
+        return context
+
+
+class PainelSolicitacaoView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
+    template_name = 'horas/painel_solicitacao.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        item = get_object_or_404(_painel_solicitacoes(self.request.user), pk=self.kwargs['pk'])
+        context.update(section='painel', solicitacao=item)
+        context.setdefault('form', SolicitacaoPainelForm(instance=item))
+        return context
+
+    def post(self, request, *args, **kwargs):
+        item = get_object_or_404(_painel_solicitacoes(request.user), pk=kwargs['pk'])
+        form = SolicitacaoPainelForm(request.POST, instance=item)
+        if form.is_valid():
+            # Only these two fields can be changed through the panel.
+            item = form.save(commit=False)
+            item.save(update_fields=['status', 'situacao'])
+            messages.success(request, 'Solicitação atualizada com sucesso.')
+            return redirect('horas:painel')
+        return self.render_to_response(self.get_context_data(form=form))
 
 
 class DashboardView(AuthenticatedViewMixin, RedirectView):

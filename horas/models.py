@@ -663,3 +663,54 @@ class Registro(models.Model):
 
     def __str__(self):
         return f'{self.user} - {self.data} - {self.hora_inicio} às {self.hora_fim}'
+
+
+class Solicitacao(models.Model):
+    @property
+    def quantidade_horas_formatadas(self):
+        return format_decimal_hours(self.quantidade_horas)
+
+    @property
+    def quantidade_horas_executadas_formatadas(self):
+        if self.quantidade_horas_executadas is None:
+            return '—'
+        return format_decimal_hours(self.quantidade_horas_executadas)
+
+    STATUS_CHOICES = [
+        ('A_FAZER', 'A FAZER'), ('PLANEJADO', 'PLANEJADO'),
+        ('EM_DESENVOLVIMENTO', 'EM DESENVOLVIMENTO'), ('EM_TESTES', 'EM TESTES'),
+        ('PRODUCAO', 'PRODUÇÃO'), ('CONCLUIDO', 'CONCLUÍDO'),
+    ]
+    SITUACAO_CHOICES = [
+        ('AGUARDANDO_CLIENTE', 'AGUARDANDO CLIENTE'),
+        ('AGUARDANDO_INTERNO', 'AGUARDANDO INTERNO'), ('EM_ANDAMENTO', 'EM ANDAMENTO'),
+    ]
+    TIPO_CHOICES = [('ESTIMATIVA', 'ESTIMATIVA'), ('EXECUCAO', 'EXECUÇÃO')]
+    PRODUTO_CHOICES = [(value, value) for value in ('ERP', 'HCM', 'ACESSO', 'OUTROS')]
+
+    solicitante = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='solicitacoes')
+    orcamento = models.CharField('Orçamento', max_length=200)
+    orcamento_cadastrado = models.ForeignKey(Orcamento, on_delete=models.PROTECT, null=True, blank=True, related_name='solicitacoes')
+    numero_chamado = models.CharField('Chamado', max_length=100, blank=True)
+    tipo = models.CharField('Tipo', max_length=10, choices=TIPO_CHOICES)
+    descricao = models.CharField('Descrição', max_length=200)
+    pmo = models.CharField('PMO', max_length=200)
+    pmo_usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name='solicitacoes_pmo')
+    produto = models.CharField('Produto', max_length=10, choices=PRODUTO_CHOICES)
+    codigo_cliente = models.CharField('Código do cliente', max_length=50)
+    cliente = models.CharField('Cliente', max_length=200)
+    descritivo_necessidade = models.TextField('Descritivo da necessidade')
+    quantidade_horas = models.DecimalField('Qtde de horas previstas', max_digits=8, decimal_places=2)
+    data_maxima_entrega = models.DateField('Data máxima de entrega')
+    quantidade_horas_executadas = models.DecimalField('Qtde de Horas Executadas', max_digits=8, decimal_places=2, null=True, blank=True)
+    data_inicio_planejamento = models.DateField('Data Inicio Planejamento', null=True, blank=True)
+    data_fim_planejamento = models.DateField('Data Fim Planejamento', null=True, blank=True)
+    status = models.CharField('Status', max_length=20, choices=STATUS_CHOICES, default='A_FAZER')
+    situacao = models.CharField('Situação', max_length=20, choices=SITUACAO_CHOICES, blank=True)
+    criado_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-criado_em', '-pk']
+
+    def __str__(self):
+        return f'{self.pk} - {self.descricao}'

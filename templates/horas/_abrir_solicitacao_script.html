@@ -1,0 +1,108 @@
+(() => {
+  const budgets = JSON.parse(document.getElementById('solicitacao-orcamentos').textContent);
+  const pmos = JSON.parse(document.getElementById('solicitacao-pmos').textContent);
+  const clients = JSON.parse(document.getElementById('solicitacao-clientes').textContent);
+  const field = name => document.getElementById(`id_${name}`);
+  const normalize = value => value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  function suggest(input, options, choose) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'search-select';
+    input.parentNode.insertBefore(wrapper, input);
+    wrapper.appendChild(input);
+    const list = document.createElement('div');
+    list.className = 'search-select-list';
+    list.id = `${input.id}-options`;
+    list.role = 'listbox';
+    list.hidden = true;
+    wrapper.appendChild(list);
+    input.setAttribute('role', 'combobox');
+    input.setAttribute('aria-autocomplete', 'list');
+    input.setAttribute('aria-controls', list.id);
+    input.setAttribute('aria-expanded', 'false');
+    let visible = [], active = -1;
+    function close() { list.hidden = true; input.setAttribute('aria-expanded', 'false'); }
+    function select(option) {
+      input.value = option.value;
+      choose?.(option);
+      input.dispatchEvent(new Event('change', {bubbles: true}));
+      close();
+    }
+    function render() {
+      list.replaceChildren();
+      const query = normalize(input.value.trim());
+      visible = query && !input.readOnly ? options.filter(o => normalize(o.label).includes(query)) : [];
+      active = -1;
+      if (!query || input.readOnly) { close(); return; }
+      if (!visible.length) {
+        const empty = document.createElement('div');
+        empty.className = 'search-select-empty';
+        empty.textContent = 'Nenhum item encontrado. Continue com o preenchimento livre.';
+        list.appendChild(empty);
+      }
+      visible.forEach((option, index) => {
+        const item = document.createElement('div');
+        item.className = 'search-select-option';
+        item.id = `${list.id}-${index}`;
+        item.role = 'option';
+        item.textContent = option.label;
+        item.addEventListener('mousedown', event => { event.preventDefault(); select(option); });
+        list.appendChild(item);
+      });
+      list.hidden = false;
+      input.setAttribute('aria-expanded', 'true');
+    }
+    input.addEventListener('input', render);
+    input.addEventListener('focus', render);
+    input.addEventListener('blur', () => { close(); input.removeAttribute('aria-activedescendant'); });
+    input.addEventListener('keydown', event => {
+      if (event.key === 'Escape') { close(); return; }
+      if (!['ArrowDown', 'ArrowUp', 'Enter'].includes(event.key)) return;
+      if (event.key === 'Enter') {
+        if (!list.hidden && active >= 0) { event.preventDefault(); select(visible[active]); }
+        return;
+      }
+      event.preventDefault();
+      if (list.hidden) render();
+      if (!visible.length) return;
+      active = (active + (event.key === 'ArrowDown' ? 1 : -1) + visible.length) % visible.length;
+      Array.from(list.children).forEach((item, index) => {
+        item.classList.toggle('is-active', index === active);
+        item.setAttribute('aria-selected', index === active ? 'true' : 'false');
+      });
+      input.setAttribute('aria-activedescendant', `${list.id}-${active}`);
+      list.children[active].scrollIntoView({block: 'nearest'});
+    });
+  }
+  const budgetField = field('orcamento');
+  let previousBudget = budgets.find(b => b.value === budgetField.value.trim());
+  let previousLocked = false;
+  function updateBudget(initial = false) {
+    const budget = budgets.find(b => b.value === budgetField.value.trim());
+    const locked = Boolean(budget && field('tipo').value === 'EXECUCAO');
+    const ticket = field('numero_chamado');
+    ticket.readOnly = Boolean(budget);
+    if (budget) ticket.value = budget.chamado;
+    else if (previousBudget && !initial) ticket.value = '';
+    ['pmo', 'codigo_cliente', 'cliente'].forEach(name => {
+      field(name).readOnly = locked;
+      if (locked) field(name).value = budget[name];
+      else if (previousLocked && !initial) field(name).value = '';
+    });
+    if (locked) field('pmo_usuario').value = budget.pmo_usuario || '';
+    previousBudget = budget;
+    previousLocked = locked;
+  }
+  suggest(budgetField, budgets);
+  suggest(field('pmo'), pmos, option => { field('pmo_usuario').value = option.user_id; });
+  field('pmo').addEventListener('input', () => { field('pmo_usuario').value = ''; });
+  function chooseClient(option) {
+    field('codigo_cliente').value = option.codigo;
+    field('cliente').value = option.nome;
+  }
+  suggest(field('codigo_cliente'), clients.map(c => ({...c, value:c.codigo, label:`${c.codigo} - ${c.nome}`})), chooseClient);
+  suggest(field('cliente'), clients.map(c => ({...c, value:c.nome, label:`${c.codigo} - ${c.nome}`})), chooseClient);
+  budgetField.addEventListener('input', () => updateBudget());
+  budgetField.addEventListener('change', () => updateBudget());
+  field('tipo').addEventListener('change', () => updateBudget());
+  updateBudget(true);
+})();

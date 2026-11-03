@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+{% block title %}Abrir Solicitação | Apontamento de Horas{% endblock %}
+{% block content %}
+  <div class="section-header"><div><h1 class="page-title">Abrir Solicitação</h1>
+    <div class="section-label">Cadastro de solicitação</div></div></div>
+  <div class="timer-card agenda-form-card">
+    <form method="post" id="solicitacao-form">
+      {% csrf_token %}
+      <div class="form-row">
+      {% for field in form %}
+        {% if field.is_hidden %}
+          {{ field }}
+          {% for error in field.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+        {% else %}
+        <div class="field" {% if field.name == 'descritivo_necessidade' %}style="grid-column:1 / -1;"{% endif %}>
+          <label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} *{% endif %}</label>
+          {{ field }}
+          {% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}
+          {% for error in field.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+        </div>
+        {% endif %}
+      {% endfor %}
+      </div>
+      {% for error in form.non_field_errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      <div class="btn-row"><button type="submit" class="btn btn-primary">Salvar solicitação</button></div>
+    </form>
+  </div>
+  {{ solicitacao_orcamentos|json_script:"solicitacao-orcamentos" }}
+  {{ solicitacao_pmos|json_script:"solicitacao-pmos" }}
+  {{ solicitacao_clientes|json_script:"solicitacao-clientes" }}
+{% endblock %}
+{% block scripts %}
+  <script>{% include 'horas/_abrir_solicitacao_script.html' %}</script>
+{% endblock %}

@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block title %}Solicitação #{{ solicitacao.pk }} | Painel{% endblock %}
+{% block content %}
+<div class="section-header">
+  <div><h1 class="page-title">Solicitação #{{ solicitacao.pk }}</h1><div class="section-label">{{ solicitacao.descricao }}</div></div>
+  <a class="btn btn-ghost" href="{% url 'horas:painel' %}">Voltar ao Painel</a>
+</div>
+<div class="timer-card agenda-form-card">
+  <p>Orçamento: {{ solicitacao.orcamento }} · Cliente: {{ solicitacao.cliente }} · PMO: {{ solicitacao.pmo }}</p>
+  <form method="post">
+    {% csrf_token %}
+    <div class="form-row">
+      {% for field in form %}
+      <div class="field">
+        <label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} *{% endif %}</label>
+        {{ field }}
+        {% for error in field.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+    {% for error in form.non_field_errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+    <div class="btn-row"><button class="btn btn-primary" type="submit">Salvar alterações</button></div>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,41 @@
+<div class="agenda-modal-backdrop" id="solicitacao-modal-{{ item.pk }}" hidden>
+  <div class="agenda-modal" role="dialog" aria-modal="true" aria-labelledby="solicitacao-modal-title-{{ item.pk }}">
+    <div class="agenda-modal-header">
+      <div>
+        <h2 class="agenda-modal-title" id="solicitacao-modal-title-{{ item.pk }}">Solicitação #{{ item.pk }}</h2>
+        <div class="agenda-modal-subtitle">{{ item.descricao }}</div>
+      </div>
+      <button class="btn btn-ghost agenda-modal-close" type="button" data-solicitacao-modal-close aria-label="Fechar">&times;</button>
+    </div>
+    <div class="agenda-modal-body">
+      <div class="agenda-modal-grid">
+        <div class="field"><label>Orçamento</label><div class="agenda-modal-value">{{ item.orcamento }}</div></div>
+        <div class="field"><label>Chamado</label><div class="agenda-modal-value">{{ item.numero_chamado|default:'—' }}</div></div>
+        <div class="field"><label>Tipo</label><div class="agenda-modal-value">{{ item.get_tipo_display }}</div></div>
+        <div class="field"><label>PMO</label><div class="agenda-modal-value">{{ item.pmo }}</div></div>
+        <div class="field"><label>Produto</label><div class="agenda-modal-value">{{ item.get_produto_display }}</div></div>
+        <div class="field"><label>Código do cliente</label><div class="agenda-modal-value">{{ item.codigo_cliente }}</div></div>
+        <div class="field is-wide"><label>Cliente</label><div class="agenda-modal-value">{{ item.cliente }}</div></div>
+        <div class="field is-wide"><label>Descrição</label><div class="agenda-modal-value">{{ item.descricao }}</div></div>
+        <div class="field is-wide"><label>Descritivo da necessidade</label><div class="agenda-modal-value">{{ item.descritivo_necessidade }}</div></div>
+        <div class="field"><label>Qtde de Horas Previstas</label><div class="agenda-modal-value">{{ item.quantidade_horas_formatadas }}</div></div>
+        <div class="field"><label>Qtde de Horas Executadas</label><div class="agenda-modal-value">{{ item.quantidade_horas_executadas_formatadas }}</div></div>
+        <div class="field"><label>Data Máxima de Entrega</label><div class="agenda-modal-value">{{ item.data_maxima_entrega|date:'d/m/Y' }}</div></div>
+        <div class="field"><label>Data Inicio Planejamento</label><div class="agenda-modal-value">{{ item.data_inicio_planejamento|date:'d/m/Y'|default:'—' }}</div></div>
+        <div class="field"><label>Data Fim Planejamento</label><div class="agenda-modal-value">{{ item.data_fim_planejamento|date:'d/m/Y'|default:'—' }}</div></div>
+      </div>
+      <form method="post" action="{% url 'horas:painel_solicitacao' item.pk %}">
+        {% csrf_token %}
+        <div class="form-row" style="margin-top:18px;">
+          {% for field in item.painel_form %}
+          <div class="field"><label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} *{% endif %}</label>{{ field }}</div>
+          {% endfor %}
+        </div>
+        <div class="agenda-modal-actions">
+          <button class="btn btn-ghost" type="button" data-solicitacao-modal-close>Cancelar</button>
+          <button class="btn btn-primary" type="submit">Salvar alterações</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>

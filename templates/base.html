@@ -71,6 +71,14 @@
         <span class="theme-toggle-icon" data-theme-toggle-icon>CL</span>
       </button>
       <nav>
+        <a class="nav-item {% if section == 'abrir_solicitacao' %}active{% endif %}" href="{% url 'horas:abrir_solicitacao' %}">
+          <span class="nav-icon">AS</span> Abrir Solicitação
+        </a>
+        {% if can_view_painel %}
+        <a class="nav-item {% if section == 'painel' %}active{% endif %}" href="{% url 'horas:painel' %}">
+          <span class="nav-icon">P</span> Painel
+        </a>
+        {% endif %}
         <a class="nav-item {% if section == 'timer' %}active{% endif %}" href="{% url 'horas:timer' %}">
           <span class="nav-icon">⏱</span> Timer
         </a>

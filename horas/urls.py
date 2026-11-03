@@ -5,6 +5,9 @@ from . import views
 app_name = 'horas'
 
 urlpatterns = [
+    path('painel/', views.PainelView.as_view(), name='painel'),
+    path('painel/<int:pk>/', views.PainelSolicitacaoView.as_view(), name='painel_solicitacao'),
+    path('abrir-solicitacao/', views.AbrirSolicitacaoView.as_view(), name='abrir_solicitacao'),
     path('', views.DashboardView.as_view(), name='dashboard'),
     path('agenda/', views.AgendaView.as_view(), name='agenda'),
     path('minhas-reservas/', views.MinhasReservasView.as_view(), name='minhas_reservas'),

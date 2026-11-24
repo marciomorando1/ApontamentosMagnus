@@ -696,6 +696,7 @@ class Solicitacao(models.Model):
     descricao = models.CharField('Descrição', max_length=200)
     pmo = models.CharField('PMO', max_length=200)
     pmo_usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name='solicitacoes_pmo')
+    vista_pelo_pmo = models.BooleanField(default=False, editable=False)
     produto = models.CharField('Produto', max_length=10, choices=PRODUTO_CHOICES)
     codigo_cliente = models.CharField('Código do cliente', max_length=50)
     cliente = models.CharField('Cliente', max_length=200)

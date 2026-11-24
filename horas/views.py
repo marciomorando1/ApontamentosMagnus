@@ -1823,6 +1823,9 @@ class SidebarContextMixin:
         context['is_admin'] = _user_is_admin(self.request.user)
         context['can_view_painel'] = context['is_admin'] or getattr(getattr(self.request.user, 'profile', None), 'is_pmo', False)
         context['is_terceiro'] = _user_is_terceiro(self.request.user)
+        context['novas_solicitacoes_count'] = (Solicitacao.objects.filter(
+            pmo_usuario=self.request.user, vista_pelo_pmo=False
+        ).count() if context['can_view_painel'] else 0)
         context['pendencias_aprovacao_count'] = 0
         if context['is_gp']:
             context['pendencias_aprovacao_count'] = SolicitacaoHoras.objects.filter(
@@ -1973,7 +1976,16 @@ class PainelView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         columns = {status: {'status': status, 'label': label, 'solicitacoes': []}
                    for status, label in Solicitacao.STATUS_CHOICES}
-        for item in _painel_solicitacoes(self.request.user):
+        items = list(_painel_solicitacoes(self.request.user))
+        # Mark only requests actually loaded in this panel for their assigned PMO.
+        Solicitacao.objects.filter(
+            pk__in=[item.pk for item in items], pmo_usuario=self.request.user,
+            vista_pelo_pmo=False,
+        ).update(vista_pelo_pmo=True)
+        context['novas_solicitacoes_count'] = (Solicitacao.objects.filter(
+            pmo_usuario=self.request.user, vista_pelo_pmo=False
+        ).count() if context['can_view_painel'] else 0)
+        for item in items:
             item.painel_form = SolicitacaoPainelForm(instance=item, auto_id=f'id_solicitacao_{item.pk}_%s')
             columns[item.status]['solicitacoes'].append(item)
         context.update(section='painel', colunas=list(columns.values()))

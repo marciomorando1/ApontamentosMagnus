@@ -859,7 +859,7 @@ class SolicitacaoPainelForm(forms.ModelForm):
 class SolicitacaoForm(forms.ModelForm):
     quantidade_horas = SolicitacaoDurationField(label='Qtde de Horas Previstas', required=True, compact_digits=True)
     quantidade_horas_executadas = SolicitacaoDurationField(label='Qtde de Horas Executadas', required=False, compact_digits=True)
-    status = forms.ChoiceField(choices=Solicitacao.STATUS_CHOICES, initial='A_FAZER', required=False)
+    status = forms.ChoiceField(choices=[('A_FAZER', 'A FAZER')], initial='A_FAZER', disabled=True, required=False)
 
     class Meta:
         model = Solicitacao
@@ -915,7 +915,7 @@ class SolicitacaoForm(forms.ModelForm):
         return data
 
     def clean_status(self):
-        return self.cleaned_data.get('status') or 'A_FAZER'
+        return 'A_FAZER'
 
     def clean_quantidade_horas_executadas(self):
         value = self.cleaned_data['quantidade_horas_executadas']

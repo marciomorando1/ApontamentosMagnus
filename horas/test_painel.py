@@ -132,3 +132,43 @@ class PainelTests(TestCase):
         form = SolicitacaoForm({**self.data, 'quantidade_horas': '02:00', 'pmo': 'Mesmo nome', 'pmo_usuario': self.pmo.pk})
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(form.cleaned_data['pmo_usuario'], self.pmo)
+
+
+    def test_unseen_badge_is_personal_and_cleared_by_panel(self):
+        self.client.force_login(self.pmo)
+        response = self.client.get(reverse('horas:abrir_solicitacao'))
+        self.assertEqual(response.context['novas_solicitacoes_count'], 1)
+        self.assertContains(response, 'nav-pending-badge')
+        self.client.get(reverse('horas:planejamento'))
+        self.item.refresh_from_db()
+        self.assertFalse(self.item.vista_pelo_pmo)
+        # An administrator viewing all requests must not clear the assigned PMO's alert.
+        self.client.force_login(self.admin)
+        self.assertEqual(self.client.get(reverse('horas:painel')).context['novas_solicitacoes_count'], 0)
+        self.item.refresh_from_db()
+        self.assertFalse(self.item.vista_pelo_pmo)
+        self.client.force_login(self.pmo)
+        response = self.client.get(reverse('horas:painel'))
+        self.assertEqual(response.context['novas_solicitacoes_count'], 0)
+        self.item.refresh_from_db()
+        self.foreign.refresh_from_db()
+        self.assertTrue(self.item.vista_pelo_pmo)
+        self.assertFalse(self.foreign.vista_pelo_pmo)
+        # Seen state survives logout and login.
+        self.client.logout()
+        self.client.force_login(self.pmo)
+        self.assertEqual(self.client.get(reverse('horas:abrir_solicitacao')).context['novas_solicitacoes_count'], 0)
+
+    def test_new_request_triggers_badge_again(self):
+        self.client.force_login(self.pmo)
+        self.client.get(reverse('horas:painel'))
+        self.client.force_login(self.regular)
+        response = self.client.post(reverse('horas:abrir_solicitacao'),
+            {**self.data, 'quantidade_horas': '02:00', 'pmo_usuario': self.pmo.pk})
+        self.assertEqual(response.status_code, 302)
+        self.client.force_login(self.pmo)
+        self.assertEqual(self.client.get(reverse('horas:abrir_solicitacao')).context['novas_solicitacoes_count'], 1)
+        self.client.force_login(self.other)
+        self.assertEqual(self.client.get(reverse('horas:abrir_solicitacao')).context['novas_solicitacoes_count'], 1)
+        self.client.force_login(self.regular)
+        self.assertEqual(self.client.get(reverse('horas:abrir_solicitacao')).context['novas_solicitacoes_count'], 0)

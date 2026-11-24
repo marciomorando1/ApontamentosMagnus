@@ -45,7 +45,7 @@ class AbrirSolicitacaoTests(TestCase):
                 self.assertFalse(form.is_valid())
                 self.assertIn(name, form.errors)
 
-    def test_planning_fields_and_status_are_saved(self):
+    def test_planning_fields_are_saved_and_status_is_fixed(self):
         self.client.force_login(self.user)
         data = {**self.data, 'quantidade_horas_executadas': '02:30',
                 'data_inicio_planejamento': '2026-11-10', 'data_fim_planejamento': '2026-11-12',
@@ -55,7 +55,7 @@ class AbrirSolicitacaoTests(TestCase):
         self.assertEqual(str(item.quantidade_horas_executadas), '2.50')
         self.assertEqual(item.data_inicio_planejamento.isoformat(), '2026-11-10')
         self.assertEqual(item.data_fim_planejamento.isoformat(), '2026-11-12')
-        self.assertEqual(item.status, 'EM_DESENVOLVIMENTO')
+        self.assertEqual(item.status, 'A_FAZER')
         self.assertEqual(item.situacao, 'EM_ANDAMENTO')
 
     def test_status_defaults_and_optional_fields(self):
@@ -70,7 +70,7 @@ class AbrirSolicitacaoTests(TestCase):
             'data_inicio_planejamento': '2026-11-12', 'data_fim_planejamento': '2026-11-10',
             'status': 'INVALIDO', 'situacao': 'INVALIDO'})
         self.assertFalse(form.is_valid())
-        for field in ('quantidade_horas_executadas', 'data_fim_planejamento', 'status', 'situacao'):
+        for field in ('quantidade_horas_executadas', 'data_fim_planejamento', 'situacao'):
             self.assertIn(field, form.errors)
 
     def test_save_free_estimate_without_agenda(self):
@@ -129,3 +129,12 @@ class AbrirSolicitacaoTests(TestCase):
         self.assertContains(response, 'normalize(o.label).includes(query)')
         self.assertNotContains(response, 'src="/static/js/abrir_solicitacao.js"')
         self.assertEqual(response.context['solicitacao_orcamentos'][0]['value'], '100')
+
+    def test_status_is_disabled_and_ignores_posted_values(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse('horas:abrir_solicitacao'))
+        self.assertTrue(response.context['form'].fields['status'].disabled)
+        for value in ('CONCLUIDO', 'INVALIDO', ''):
+            response = self.client.post(reverse('horas:abrir_solicitacao'), {**self.data, 'status': value})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(Solicitacao.objects.latest('pk').status, 'A_FAZER')

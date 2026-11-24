@@ -78,8 +78,11 @@
           <span class="nav-icon">PL</span> Planejamento
         </a>
         {% if can_view_painel %}
-        <a class="nav-item {% if section == 'painel' %}active{% endif %}" href="{% url 'horas:painel' %}">
-          <span class="nav-icon">P</span> Painel
+        <a class="nav-item {% if section == 'painel' %}active{% endif %}{% if novas_solicitacoes_count %} has-pending{% endif %}" href="{% url 'horas:painel' %}">
+          <span class="nav-icon">P</span> <span class="nav-label">Painel</span>
+          {% if novas_solicitacoes_count %}
+            <span class="nav-pending-badge" title="{{ novas_solicitacoes_count }} nova(s) solicitação(ões) ainda não vista(s)" aria-label="{{ novas_solicitacoes_count }} nova(s) solicitação(ões) ainda não vista(s)">{{ novas_solicitacoes_count }}</span>
+          {% endif %}
         </a>
         {% endif %}
         <a class="nav-item {% if section == 'timer' %}active{% endif %}" href="{% url 'horas:timer' %}">

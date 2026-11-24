@@ -714,3 +714,23 @@ class Solicitacao(models.Model):
 
     def __str__(self):
         return f'{self.pk} - {self.descricao}'
+
+
+class SubTarefa(models.Model):
+    TAREFA_CHOICES = [(value, value) for value in (
+        'LEVANTAMENTO', 'DESENVOLVIMENTO', 'TESTES INDIVIDUAIS', 'TESTES CLIENTE')]
+    solicitacao = models.ForeignKey(Solicitacao, on_delete=models.CASCADE, related_name='subtarefas')
+    tarefa = models.CharField('Tarefa', max_length=20, choices=TAREFA_CHOICES)
+    descricao = models.TextField('Descrição')
+    minutos = models.PositiveIntegerField('Quantidade de minutos')
+
+    class Meta:
+        ordering = ['pk']
+        constraints = [models.CheckConstraint(condition=models.Q(minutos__gt=0), name='subtarefa_minutos_positivos')]
+
+    @property
+    def horas_formatadas(self):
+        return f'{self.minutos // 60:02d}:{self.minutos % 60:02d}'
+
+    def __str__(self):
+        return f'{self.solicitacao_id} - {self.tarefa}'

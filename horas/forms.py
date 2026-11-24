@@ -22,6 +22,7 @@ from .models import (
     Servico,
     SolicitacaoHoras,
     Solicitacao,
+    SubTarefa,
     format_decimal_hours,
 )
 
@@ -926,4 +927,30 @@ class SolicitacaoForm(forms.ModelForm):
         value = self.cleaned_data['quantidade_horas']
         if value <= 0:
             raise forms.ValidationError('Informe uma quantidade de horas maior que zero.')
+        return value
+
+
+class SubTarefaForm(forms.ModelForm):
+    quantidade_horas = forms.CharField(label='Quantidade de Horas', help_text='HH:MM (ex.: 01:30).',
+        widget=forms.TextInput(attrs={'placeholder': 'HH:MM', 'pattern': '[0-9]{2,}:[0-5][0-9]'}))
+
+    class Meta:
+        model = SubTarefa
+        fields = ['tarefa', 'descricao']
+        widgets = {'descricao': forms.Textarea(attrs={'rows': 3})}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance.pk and not self.is_bound:
+            self.initial['quantidade_horas'] = self.instance.horas_formatadas
+
+    def clean_quantidade_horas(self):
+        value = self.cleaned_data['quantidade_horas']
+        if not re.fullmatch(r'\d{2,}:[0-5]\d', value):
+            raise forms.ValidationError('Informe as horas no formato HH:MM, com minutos entre 00 e 59.')
+        hours, minutes = map(int, value.split(':'))
+        total = hours * 60 + minutes
+        if not 0 < total <= 2147483647:
+            raise forms.ValidationError('Informe uma duração maior que zero e de até 35791394:07.')
+        self.instance.minutos = total
         return value

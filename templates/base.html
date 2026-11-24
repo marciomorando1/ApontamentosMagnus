@@ -74,6 +74,9 @@
         <a class="nav-item {% if section == 'abrir_solicitacao' %}active{% endif %}" href="{% url 'horas:abrir_solicitacao' %}">
           <span class="nav-icon">AS</span> Abrir Solicitação
         </a>
+        <a class="nav-item {% if section == 'planejamento' %}active{% endif %}" href="{% url 'horas:planejamento' %}">
+          <span class="nav-icon">PL</span> Planejamento
+        </a>
         {% if can_view_painel %}
         <a class="nav-item {% if section == 'painel' %}active{% endif %}" href="{% url 'horas:painel' %}">
           <span class="nav-icon">P</span> Painel

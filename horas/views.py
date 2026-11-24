@@ -3464,3 +3464,59 @@ def exportar_estimativa_xlsx(request, pk):
     )
     response['Content-Disposition'] = f'attachment; filename="{filename}"'
     return response
+
+
+
+def _planejamento_solicitacoes(user):
+    from django.db.models import Q
+    queryset = Solicitacao.objects.all()
+    if _user_is_admin(user):
+        return queryset
+    return queryset.filter(Q(solicitante=user) | Q(pmo_usuario=user))
+
+
+class PlanejamentoView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
+    template_name = 'horas/planejamento.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        items = list(_planejamento_solicitacoes(self.request.user).prefetch_related('subtarefas'))
+        for item in items:
+            total = sum(task.minutos for task in item.subtarefas.all())
+            item.total_planejado = f'{total // 60:02d}:{total % 60:02d}'
+        context.update(section='planejamento', solicitacoes=items)
+        return context
+
+
+class SubTarefaView(AuthenticatedViewMixin, SidebarContextMixin, TemplateView):
+    template_name = 'horas/subtarefa_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated:
+            self.solicitacao = get_object_or_404(_planejamento_solicitacoes(request.user), pk=kwargs['solicitacao_pk'])
+            self.subtarefa = (get_object_or_404(self.solicitacao.subtarefas, pk=kwargs['pk'])
+                              if 'pk' in kwargs else None)
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        from .forms import SubTarefaForm
+        context = super().get_context_data(**kwargs)
+        context.update(section='planejamento', solicitacao=self.solicitacao, subtarefa=self.subtarefa,
+                       excluir=self.kwargs.get('excluir', False))
+        context.setdefault('form', SubTarefaForm(instance=self.subtarefa))
+        return context
+
+    def post(self, request, *args, **kwargs):
+        from .forms import SubTarefaForm
+        if kwargs.get('excluir'):
+            self.subtarefa.delete()
+            messages.success(request, 'Subtarefa excluída com sucesso.')
+        else:
+            form = SubTarefaForm(request.POST, instance=self.subtarefa)
+            if not form.is_valid():
+                return self.render_to_response(self.get_context_data(form=form))
+            item = form.save(commit=False)
+            item.solicitacao = self.solicitacao
+            item.save()
+            messages.success(request, 'Subtarefa salva com sucesso.')
+        return redirect('horas:planejamento')

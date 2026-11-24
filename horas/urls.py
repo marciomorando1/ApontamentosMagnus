@@ -5,6 +5,10 @@ from . import views
 app_name = 'horas'
 
 urlpatterns = [
+    path('planejamento/', views.PlanejamentoView.as_view(), name='planejamento'),
+    path('planejamento/<int:solicitacao_pk>/nova/', views.SubTarefaView.as_view(), name='subtarefa_nova'),
+    path('planejamento/<int:solicitacao_pk>/<int:pk>/editar/', views.SubTarefaView.as_view(), name='subtarefa_editar'),
+    path('planejamento/<int:solicitacao_pk>/<int:pk>/excluir/', views.SubTarefaView.as_view(), {'excluir': True}, name='subtarefa_excluir'),
     path('painel/', views.PainelView.as_view(), name='painel'),
     path('painel/<int:pk>/', views.PainelSolicitacaoView.as_view(), name='painel_solicitacao'),
     path('abrir-solicitacao/', views.AbrirSolicitacaoView.as_view(), name='abrir_solicitacao'),

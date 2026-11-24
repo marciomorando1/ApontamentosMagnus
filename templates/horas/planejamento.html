@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block title %}Planejamento | Apontamento de Horas{% endblock %}
+{% block content %}
+<div class="section-header"><div><h1 class="page-title">Planejamento</h1><div class="section-label">Subtarefas por solicitação · Total de horas em HH:MM</div></div></div>
+{% for item in solicitacoes %}
+<section class="timer-card" style="margin-bottom:24px;">
+  <div class="section-header"><div><h2>#{{ item.pk }} · {{ item.cliente }}</h2><p>{{ item.descricao }}</p><p>Produto: <strong>{{ item.produto }}</strong> · PMO: <strong>{{ item.pmo }}</strong></p></div>
+  <a class="btn btn-primary" href="{% url 'horas:subtarefa_nova' item.pk %}">Incluir subtarefa</a></div>
+  <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;text-align:left;">
+    <thead><tr><th scope="col">Tarefa</th><th scope="col">Produto</th><th scope="col">Descrição</th><th scope="col">PMO</th><th scope="col">Qtde de horas</th><th scope="col">Ações</th></tr></thead>
+    <tbody>{% for task in item.subtarefas.all %}<tr>
+      <td style="padding:12px 8px;">{{ task.get_tarefa_display }}</td><td>{{ item.produto }}</td><td style="white-space:pre-wrap;overflow-wrap:anywhere;">{{ task.descricao }}</td><td>{{ item.pmo }}</td><td>{{ task.horas_formatadas }}</td>
+      <td><a class="btn btn-ghost btn-sm" href="{% url 'horas:subtarefa_editar' item.pk task.pk %}">Alterar</a> <a class="btn btn-ghost btn-sm" href="{% url 'horas:subtarefa_excluir' item.pk task.pk %}">Excluir</a></td>
+    </tr>{% empty %}<tr><td colspan="6" style="padding:16px 8px;">Nenhuma subtarefa cadastrada nesta solicitação.</td></tr>{% endfor %}</tbody>
+    <tfoot><tr><th colspan="4" scope="row" style="padding:16px 8px;">Total de horas da solicitação</th><td colspan="2"><strong>{{ item.total_planejado }}</strong></td></tr></tfoot>
+  </table></div>
+</section>
+{% empty %}<div class="timer-card">Nenhuma solicitação disponível para planejamento. <a href="{% url 'horas:abrir_solicitacao' %}">Abrir solicitação</a></div>{% endfor %}
+{% endblock %}

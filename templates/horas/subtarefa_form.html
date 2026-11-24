@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% block title %}Subtarefa | Planejamento{% endblock %}
+{% block content %}
+<div class="section-header"><div><h1 class="page-title">{% if excluir %}Excluir subtarefa{% elif subtarefa %}Alterar subtarefa{% else %}Incluir subtarefa{% endif %}</h1><div class="section-label">Solicitação #{{ solicitacao.pk }} · {{ solicitacao.cliente }} · {{ solicitacao.descricao }}</div></div></div>
+<div class="timer-card agenda-form-card">
+<form method="post">{% csrf_token %}
+{% if excluir %}
+<p>Confirma a exclusão da subtarefa <strong>{{ subtarefa.get_tarefa_display }}</strong> ({{ subtarefa.horas_formatadas }})?</p><p>{{ subtarefa.descricao }}</p>
+{% else %}
+<div class="form-row">
+<div class="field"><label for="produto">Produto</label><input id="produto" value="{{ solicitacao.produto }}" readonly></div>
+<div class="field"><label for="pmo">PMO</label><input id="pmo" value="{{ solicitacao.pmo }}" readonly></div>
+{% for field in form %}<div class="field" {% if field.name == 'descricao' %}style="grid-column:1 / -1;"{% endif %}><label for="{{ field.id_for_label }}">{{ field.label }} *</label>{{ field }}{% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}{% for error in field.errors %}<div class="field-error">{{ error }}</div>{% endfor %}</div>{% endfor %}
+</div>{{ form.non_field_errors }}
+{% endif %}
+<div class="btn-row"><button class="btn btn-primary" type="submit">{% if excluir %}Confirmar exclusão{% else %}Salvar subtarefa{% endif %}</button><a class="btn btn-ghost" href="{% url 'horas:planejamento' %}">Cancelar</a></div>
+</form></div>
+{% endblock %}

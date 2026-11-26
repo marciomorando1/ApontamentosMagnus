@@ -507,7 +507,7 @@ def _agenda_list_queryset(request, selected_users, month_start):
 
 
 def _agenda_users_for_filter():
-    return User.objects.order_by('username')
+    return User.objects.filter(is_active=True).order_by('username')
 
 
 def _normalize_agenda_users(selected_users):
